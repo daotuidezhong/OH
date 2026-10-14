@@ -18,6 +18,17 @@ export function decayPetStatsByTime(energy: number, sleepiness: number, updatedA
   };
 }
 
+export function settlePetSleep(energy: number, sleepiness: number, updatedAt: number, sleepEndsAt: number | null, sleepRest: number, now = Date.now()) {
+  if (sleepEndsAt !== null && sleepEndsAt > now) {
+    return { energy, sleepiness, statsUpdatedAt: now, sleepEndsAt, sleepRest, sleepEnded: false };
+  }
+  const sleepEnded = sleepEndsAt !== null;
+  const stats = sleepEndsAt !== null
+    ? decayPetStatsByTime(energy, Math.max(0, sleepiness - sleepRest), sleepEndsAt, now)
+    : decayPetStatsByTime(energy, sleepiness, updatedAt, now);
+  return { ...stats, sleepEndsAt: null, sleepRest: 0, sleepEnded };
+}
+
 export function canPetMove(energy: number) {
   return energy > 0;
 }

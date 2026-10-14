@@ -13,12 +13,22 @@ const WINDOWS_APP_ID = app.isPackaged
   : "com.berryworkout.island.development";
 app.setAppUserModelId(WINDOWS_APP_ID);
 
+const singleInstance = app.requestSingleInstanceLock();
+let mainWindow = null;
+if (!singleInstance) app.quit();
+app.on("second-instance", () => {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+});
+
 protocol.registerSchemesAsPrivileged([{
   scheme: "berry",
   privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
 }]);
 
-app.whenReady().then(() => {
+if (singleInstance) app.whenReady().then(() => {
   const root = app.isPackaged
     ? path.join(process.resourcesPath, "desktop-dist")
     : path.join(__dirname, "../desktop-dist");
@@ -63,6 +73,7 @@ app.whenReady().then(() => {
       backgroundThrottling: false,
     },
   });
+  mainWindow = window;
   let pomodoroMiniWindow = null;
   let pomodoroMiniSnapshot = null;
   let pomodoroMiniDragOrigin = null;
@@ -144,6 +155,10 @@ app.whenReady().then(() => {
   const storage = createStorage(dataFile, { journalPhotosDirectory, photoBoardDirectory });
   ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
   ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
+  ipcMain.on("storage:initialize", (event, legacyData) => {
+    event.returnValue = event.sender === window.webContents ? storage.initialize(legacyData) : storage.snapshot();
+  });
+  ipcMain.on("storage:snapshot", (event) => { event.returnValue = storage.snapshot(); });
   ipcMain.handle("storage:export", async (event) => {
     if (event.sender !== window.webContents) return { status: "error", message: "无法读取当前游戏数据" };
     try {
@@ -246,6 +261,7 @@ app.whenReady().then(() => {
   window.webContents.once("did-finish-load", () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); });
   window.loadURL("berry://game/");
   window.on("closed", () => {
+    mainWindow = null;
     cancelPomodoroTimer();
     if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) pomodoroMiniWindow.close();
   });

@@ -1,5 +1,41 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
+function replaceApplicationCache(data) {
+  try {
+    const entries = Object.entries(data);
+    const keys = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith("berry-")) keys.push(key);
+    }
+    for (const key of keys) window.localStorage.removeItem(key);
+    for (const [key, value] of entries) {
+      if (key.startsWith("berry-") && typeof value === "string") window.localStorage.setItem(key, value);
+    }
+  } catch {
+    // Disk storage remains authoritative when the optional browser cache is full or unavailable.
+  }
+}
+
+function refreshStorageCache() {
+  const data = ipcRenderer.sendSync("storage:snapshot");
+  replaceApplicationCache(data);
+  return data;
+}
+
+if (window.location.protocol === "berry:" && window.location.hostname === "game" && window.location.pathname === "/") {
+  try {
+    const legacyData = {};
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith("berry-")) legacyData[key] = window.localStorage.getItem(key);
+    }
+    replaceApplicationCache(ipcRenderer.sendSync("storage:initialize", legacyData));
+  } catch {
+    // Keep the bridge usable, and retry migration on a later launch if cache access failed.
+  }
+}
+
 contextBridge.exposeInMainWorld("gameUpdater", {
   onStatus(callback) {
     const listener = (_event, status) => callback(status);
@@ -12,6 +48,8 @@ contextBridge.exposeInMainWorld("gameUpdater", {
   storage: {
     load: (key) => ipcRenderer.sendSync("storage:load", key),
     save: (key, value) => ipcRenderer.send("storage:save", key, value),
+    snapshot: () => ipcRenderer.sendSync("storage:snapshot"),
+    refreshCache: refreshStorageCache,
     exportBackup: () => ipcRenderer.invoke("storage:export"),
     importBackup: () => ipcRenderer.invoke("storage:import"),
   },

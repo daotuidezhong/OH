@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["esnext"],
+    "incremental": false,
+    "plugins": []
+  },
+  "include": [
+    "worker-configuration.d.ts",
+    "worker/**/*.ts",
+    "db/**/*.ts",
+    "app/api/**/*.ts"
+  ],
+  "exclude": ["node_modules"]
+}

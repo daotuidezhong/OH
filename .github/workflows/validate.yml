@@ -1,0 +1,30 @@
+name: Validate next update
+
+on:
+  pull_request:
+  push:
+    branches: [codex/cat-room-feeding-next-update]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            /*
+            !/public/game/room-frames/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx eslint app desktop electron db tests worker --quiet
+      - run: npm test
+      - run: npx vite build --config desktop/vite.config.ts

@@ -3,7 +3,7 @@ import PhotoBoardScrollbar from "./PhotoBoardScrollbar";
 import type { PhotoBoardPhoto } from "./types";
 
 type Props = {
-  open: boolean; origin: DOMRect | null; photos: PhotoBoardPhoto[]; uploadingId: string | null; deletingId: string | null;
+  open: boolean; origin: DOMRect | null; photos: PhotoBoardPhoto[]; uploadingId: string | null; uploadingBusy?: boolean; deletingId: string | null;
   photoUrl: (photo: PhotoBoardPhoto) => string; onClose: () => void; onUpload: (file: File) => void; onDesktopUpload?: () => void;
   onDelete: (photo: PhotoBoardPhoto) => void; onUpdateCaption: (photoId: string, caption: string) => void;
 };
@@ -23,12 +23,20 @@ function BoardRope({ className }: { className: string }) {
   </svg>;
 }
 
+function blurCaption(container: HTMLElement | null) {
+  const active = document.activeElement;
+  if (active instanceof HTMLTextAreaElement && container?.contains(active)) active.blur();
+}
+
 function CaptionEditor({ photo, viewer = false, onSave }: { photo: PhotoBoardPhoto; viewer?: boolean; onSave: (caption: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(photo.caption ?? "");
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cancellingRef = useRef(false);
-  useEffect(() => { if (editing) { inputRef.current?.focus(); inputRef.current?.setSelectionRange(draft.length, draft.length); } }, [editing, draft.length]);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (editing && input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
+  }, [editing]);
 
   const save = () => {
     const caption = draft.trim().slice(0, 80);
@@ -78,6 +86,7 @@ function PhotoViewer({ photo, src, origin, onClosed, onUpdateCaption }: { photo:
 
   const closeViewer = () => {
     if (closing) return;
+    blurCaption(paperRef.current);
     const card = document.querySelector<HTMLElement>(`[data-photo-id="${CSS.escape(photo.id)}"] .photo-board-card`);
     const viewport = card?.closest<HTMLElement>(".photo-board-viewport");
     const rect = card?.getBoundingClientRect();
@@ -87,7 +96,7 @@ function PhotoViewer({ photo, src, origin, onClosed, onUpdateCaption }: { photo:
     else { setClosing("fallback"); window.setTimeout(onClosed, 260); }
   };
 
-  return <div className={`photo-viewer ${ready ? "ready" : ""} ${closing ? `closing-${closing}` : ""}`} role="dialog" aria-modal="true" aria-label="照片大图" onPointerDown={closeViewer}>
+  return <div className={`photo-viewer ${ready ? "ready" : ""} ${closing ? `closing-${closing}` : ""}`} role="dialog" aria-modal="true" aria-label="照片大图" onPointerDown={(event) => { event.stopPropagation(); closeViewer(); }}>
     <div ref={paperRef} className="photo-viewer-paper" style={{ width: imageWidth + 20 } as React.CSSProperties} onPointerDown={(event) => event.stopPropagation()}>
       <img src={src} alt="生活照片大图" style={{ width: imageWidth, height: imageHeight }} />
       <CaptionEditor photo={photo} viewer onSave={onUpdateCaption} />
@@ -96,7 +105,8 @@ function PhotoViewer({ photo, src, origin, onClosed, onUpdateCaption }: { photo:
   </div>;
 }
 
-export default function PhotoBoardOverlay({ open, origin, photos, uploadingId, deletingId, photoUrl, onClose, onUpload, onDesktopUpload, onDelete, onUpdateCaption }: Props) {
+export default function PhotoBoardOverlay({ open, origin, photos, uploadingId, uploadingBusy = false, deletingId, photoUrl, onClose, onUpload, onDesktopUpload, onDelete, onUpdateCaption }: Props) {
+  const layerRef = useRef<HTMLDivElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -107,7 +117,9 @@ export default function PhotoBoardOverlay({ open, origin, photos, uploadingId, d
   const maxSlot = photos.reduce((maximum, photo) => Math.max(maximum, photo.slot), -1);
   const columnCount = Math.max(5, Math.ceil((maxSlot + 1) / 2));
   const contentWidth = useMemo(() => `max(100%, ${columnCount * 238 + 76}px)`, [columnCount]);
-  const closeBoard = () => { setSelectedId(null); setViewer(null); setConfirming(false); onClose(); };
+  const uploadInProgress = uploadingBusy || Boolean(uploadingId);
+  const startUpload = () => { if (!uploadInProgress) { if (onDesktopUpload) onDesktopUpload(); else inputRef.current?.click(); } };
+  const closeBoard = () => { blurCaption(layerRef.current); setSelectedId(null); setViewer(null); setConfirming(false); onClose(); };
 
   useEffect(() => {
     if (!uploadingId) return;
@@ -119,7 +131,7 @@ export default function PhotoBoardOverlay({ open, origin, photos, uploadingId, d
   if (!open) return null;
   const originX = origin ? origin.left + origin.width / 2 : window.innerWidth * .65;
   const originY = origin ? origin.top + origin.height / 2 : window.innerHeight * .42;
-  return <div className="photo-board-layer" role="presentation" onPointerDown={closeBoard}>
+  return <div ref={layerRef} className="photo-board-layer" role="presentation" onPointerDown={closeBoard}>
     <section className="photo-board-overlay" role="dialog" aria-modal="true" aria-label="照片板" style={{ "--board-origin-x": `${originX}px`, "--board-origin-y": `${originY}px` } as React.CSSProperties} onPointerDown={(event) => event.stopPropagation()}>
       <header><span><b>照片板</b><small>把生活里的小小美好，别在这里</small></span><button type="button" onClick={closeBoard} aria-label="关闭照片板">×</button></header>
       <div ref={viewportRef} className="photo-board-viewport" onWheel={(event) => { const viewport = event.currentTarget; if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && viewport.scrollWidth > viewport.clientWidth) viewport.scrollLeft += event.deltaY * .7; }}>
@@ -134,11 +146,11 @@ export default function PhotoBoardOverlay({ open, origin, photos, uploadingId, d
               <CaptionEditor photo={photo} onSave={(caption) => onUpdateCaption(photo.id, caption)} />
             </div>
           </div>)}
-          {!photos.length && <div className="photo-board-empty"><p>把第一张生活照片挂在这里吧</p><button type="button" onClick={() => onDesktopUpload ? onDesktopUpload() : inputRef.current?.click()}>上传照片</button></div>}
+          {!photos.length && <div className="photo-board-empty"><p>把第一张生活照片挂在这里吧</p><button type="button" disabled={uploadInProgress} onClick={startUpload}>{uploadInProgress ? "正在上传…" : "上传照片"}</button></div>}
         </div>
       </div>
       <PhotoBoardScrollbar viewportRef={viewportRef} />
-      <footer><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file) onUpload(file); }} /><button type="button" className="primary-button" onClick={() => onDesktopUpload ? onDesktopUpload() : inputRef.current?.click()}>上传照片</button><button type="button" disabled={!selectedPhoto || Boolean(deletingId)} onClick={() => setConfirming(true)}>删除照片</button></footer>
+      <footer><input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" disabled={uploadInProgress} onChange={(event) => { const file = event.currentTarget.files?.[0]; event.currentTarget.value = ""; if (file && !uploadInProgress) onUpload(file); }} /><button type="button" className="primary-button" disabled={uploadInProgress} onClick={startUpload}>{uploadInProgress ? "正在上传…" : "上传照片"}</button><button type="button" disabled={!selectedPhoto || Boolean(deletingId)} onClick={() => setConfirming(true)}>删除照片</button></footer>
       {confirming && selectedPhoto && <div className="photo-board-confirm" role="alertdialog" aria-label="确认删除照片"><p>要把这张照片取下来吗？</p><span><button type="button" onClick={() => setConfirming(false)}>再留一会儿</button><button type="button" onClick={() => { setConfirming(false); onDelete(selectedPhoto); }}>取下照片</button></span></div>}
     </section>
     {viewer && viewerPhoto && <PhotoViewer photo={viewerPhoto} src={photoUrl(viewerPhoto)} origin={viewer.origin} onClosed={() => setViewer(null)} onUpdateCaption={(caption) => onUpdateCaption(viewerPhoto.id, caption)} />}

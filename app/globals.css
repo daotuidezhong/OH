@@ -314,6 +314,15 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .scene-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
 .cat-walk-sprite { display: block; width: 100%; aspect-ratio: 1; background-repeat: no-repeat; background-position: calc(var(--walk-frame) * 33.333333%) calc(var(--walk-row) * 14.285714%); background-size: 400% 800%; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease; }
 .walking-cat { transition: left .55s linear, top .55s linear; }
+.walking-cat.feeding-cat { transition: none; }
+.walking-cat.feeding-cat .cat-base { animation: none !important; }
+.walking-cat:is([data-feeding-state="LOWER_HEAD"], [data-feeding-state="EATING"], [data-feeding-state="FINISH_EATING"]) b { bottom: 87%; }
+.cat-eating-sprite { display: block; width: calc(100% * 512 / 418); max-width: none; height: auto; aspect-ratio: 512 / 418; image-rendering: pixelated; filter: var(--scene-lighting); }
+.food-bowl { position: absolute; width: clamp(52px, 5.8vw, 96px); aspect-ratio: 1; padding: 0; border: 0; background: none; transform: translate(-50%, -70%); }
+.food-bowl img { display: block; width: 100%; image-rendering: pixelated; filter: var(--scene-lighting) drop-shadow(0 3px 2px #472d2233); pointer-events: none; }
+.food-bowl:disabled { opacity: 1; }
+.bowl-food { position: absolute; left: 22%; top: 44%; width: 56%; height: 20%; image-rendering: pixelated; filter: var(--scene-lighting); pointer-events: none; }
+.food-bowl:focus-visible { outline: 2px dashed #ffedbc; outline-offset: -5px; }
 .roommate-cat { text-align: center; }
 .roommate-cat b { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); white-space: nowrap; }
 .walking-cat.walking .cat-base { animation: cat-pose-walk-in .18s ease-out both; }
@@ -361,7 +370,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 @keyframes fire-flicker { 50% { opacity: .68; filter: brightness(1.18); } }
 @keyframes clock-pendulum { 50% { transform: rotate(4deg); } }
 @keyframes yarn-wiggle { 0%, 84%, 100% { transform: none; } 88% { transform: rotate(-5deg) translateX(-2px); } 92% { transform: rotate(5deg) translateX(2px); } }
-.furniture-rug { width: clamp(180px, 24vw, 390px); transform: translate(-50%, -48%); }
+.furniture-rug { width: clamp(126px, 16.8vw, 273px); transform: translate(-50%, -48%); }
+.furniture-rug img { max-height: 161px; }
 .furniture-plant, .furniture-lamp { width: clamp(82px, 9.5vw, 165px); transform: translate(-50%, -76%); }
 .furniture-catbed, .furniture-strawberrybed, .furniture-moonbed { width: clamp(130px, 16vw, 265px); transform: translate(-50%, -61%); }
 .furniture-strawberrybed img { filter: var(--scene-lighting) hue-rotate(325deg) saturate(1.35) brightness(1.02) drop-shadow(0 5px 3px rgba(71, 45, 34, .25)); }
@@ -375,7 +385,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .decorating .placed-furniture { cursor: grab; }
 .decorating .placed-furniture::before { position: absolute; inset: -8px; content: ""; border: 3px dashed rgba(255, 233, 122, .95); border-radius: 13px; background: rgba(255, 244, 171, .18); }
 .decorating .placed-furniture:hover::before, .placed-furniture.dragging::before { background: rgba(255, 224, 102, .42); }
-.placed-furniture.dragging { z-index: 120 !important; cursor: grabbing; filter: brightness(1.08); }
+.placed-furniture.dragging { z-index: 20000 !important; cursor: grabbing; filter: brightness(1.08); }
 .placed-furniture > span { position: absolute; left: 50%; bottom: -15px; z-index: 2; padding: 4px 7px; transform: translateX(-50%); border: 2px solid #725447; border-radius: 8px; background: #fff7d8; font-size: 9px; white-space: nowrap; }
 
 .seed-layer { position: absolute; inset: 0; z-index: 82; display: grid; place-items: center; padding: 18px; background: rgba(62, 43, 37, .3); backdrop-filter: blur(2px); }
@@ -1145,7 +1155,7 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   .pet-grid article { grid-template-columns: 105px 1fr; }
   .pet-grid article > div { height: 145px; }
   .pet-grid img { height: 135px; }
-  .furniture-rug { width: 27vw; min-width: 130px; }
+  .furniture-rug { width: 18.9vw; min-width: 91px; }
     .placed-furniture { min-width: 66px; }
     .cabinet-shelf { grid-template-columns: repeat(2, minmax(105px, 1fr)); }
     .player-controls input { width: 82px; }

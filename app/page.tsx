@@ -15,10 +15,15 @@ import {
   type CatPose,
   type CatStatusId,
 } from "./game/cat-actions";
-import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "./game/pet-stats";
+import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, settlePetSleep, SLEEP_DURATION_MS } from "./game/pet-stats";
 import { getJournalReward } from "./game/journal-reward";
+import { getJournalStreak, localDate } from "./game/journal";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
 import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
+import { advanceFeeding, beginFeeding, EMPTY_FEEDING, findBowlPlacement } from "./game/feeding";
+import { EatingSprite, FoodBowl } from "./game/FeedingSprites";
+import { getFeedingDockOffset } from "./game/feeding-pose";
+import { furnitureCollision, useRoomDepth } from "./game/room-depth";
 import PhotoBoardWall from "./game/photo-board/PhotoBoardWall";
 import PhotoBoardOverlay from "./game/photo-board/PhotoBoardOverlay";
 import { normalizePhotoBoard, PHOTO_BOARD_STORAGE_KEY, stablePhotoRotation, type PhotoBoardPhoto } from "./game/photo-board/types";
@@ -72,6 +77,7 @@ type IngredientFilter = "all" | IngredientCategory;
 type JournalCategory = "运动" | "学习" | "工作" | "饮食" | "睡眠" | "其他";
 type JournalPhoto = { fileName?: string; key?: string; width: number; height: number };
 type CheckinRecord = { id: number; date: string; content: string; category: JournalCategory; rating: number | null; reward: number | null; createdAt: string; photo?: JournalPhoto | null };
+type HistoryBatch = { records: CheckinRecord[]; total: number; totalDays: number; nextCursor: string | null };
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
 type PhotoActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: JournalPhoto };
@@ -173,6 +179,7 @@ declare global {
         save: (key: string, value: string) => void;
         exportBackup: () => Promise<BackupActionResult>;
         importBackup: () => Promise<BackupActionResult>;
+        refreshCache: () => Record<string, string>;
       };
       journalPhotos?: {
         select: () => Promise<PhotoActionResult>;
@@ -375,16 +382,17 @@ const journalCategories: { name: JournalCategory; icon: string }[] = [
 ];
 
 function readPersisted(key: string) {
-  const desktopValue = window.gameUpdater?.storage.load(key);
-  if (desktopValue !== undefined && desktopValue !== null) return desktopValue;
-  const browserValue = window.localStorage.getItem(key);
-  if (browserValue !== null) window.gameUpdater?.storage.save(key, browserValue);
-  return browserValue;
+  if (window.gameUpdater?.storage) return window.gameUpdater.storage.load(key);
+  return window.localStorage.getItem(key);
 }
 
 function writePersisted(key: string, value: string) {
+  if (window.gameUpdater?.storage) {
+    window.gameUpdater.storage.save(key, value);
+    try { window.localStorage.setItem(key, value); } catch { /* Desktop disk storage remains authoritative. */ }
+    return;
+  }
   window.localStorage.setItem(key, value);
-  window.gameUpdater?.storage.save(key, value);
 }
 
 function photoBoardUrl(photo: PhotoBoardPhoto) {
@@ -436,13 +444,6 @@ const ICE_CUBE_LAYOUT = [
 ];
 const ROOM_SCENE_ASSET_VERSION = "20260817-static-vinyl-wall-furniture-v1";
 
-function localDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -484,6 +485,11 @@ export default function Home() {
   const [deviceId, setDeviceId] = useState("");
   const [history, setHistory] = useState<CheckinRecord[]>([]);
   const [historyPage, setHistoryPage] = useState(0);
+  const [historyMeta, setHistoryMeta] = useState<Omit<HistoryBatch, "records"> | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyReady, setHistoryReady] = useState(false);
+  const [historyError, setHistoryError] = useState(false);
+  const [historyRetry, setHistoryRetry] = useState(0);
   const [savingCheckin, setSavingCheckin] = useState(false);
   const [game, setGame] = useState<GameState>(INITIAL_GAME);
   const [inspectedPetId, setInspectedPetId] = useState<PetId>("mitao");
@@ -494,9 +500,13 @@ export default function Home() {
   const [decorating, setDecorating] = useState(false);
   const [dragging, setDragging] = useState<string | null>(null);
   const [walking, setWalking] = useState(false);
+  const [feeding, setFeeding] = useState(EMPTY_FEEDING);
+  const feedingRef = useRef(EMPTY_FEEDING);
+  const feedingBusy = feeding.phase !== "IDLE";
+  const [bowlPosition, setBowlPosition] = useState<Point>({ x: 64, y: 85 });
   const [jumping, setJumping] = useState(false);
   const [walkFrame, setWalkFrame] = useState(0);
-  const [walkDuration, setWalkDuration] = useState(550);
+  const [walkDuration, setWalkDuration] = useState(0);
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
   const [weather, setWeather] = useState<{ kind: WeatherKind; label: string }>({ kind: "clear", label: "晴" });
   const [catStatus, setCatStatus] = useState<CatStatusId>(() => getCatStatus(INITIAL_GAME.energy, INITIAL_GAME.sleepiness));
@@ -540,6 +550,7 @@ export default function Home() {
   const [photoBoardPhotos, setPhotoBoardPhotos] = useState<PhotoBoardPhoto[]>([]);
   const [photoBoardReady, setPhotoBoardReady] = useState(false);
   const [uploadingPhotoId, setUploadingPhotoId] = useState<string | null>(null);
+  const [photoUploadBusy, setPhotoUploadBusy] = useState(false);
   const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -548,6 +559,7 @@ export default function Home() {
   const lastPlaybackRecovery = useRef<{ trackId: number; attemptedAt: number } | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
+  const motionFrame = useRef(0);
   const headShakeTimer = useRef<number | undefined>(undefined);
   const sleepInterruptReadyAt = useRef(0);
   const animationImages = useRef<HTMLImageElement[]>([]);
@@ -556,13 +568,19 @@ export default function Home() {
   const pouringTimer = useRef<number | undefined>(undefined);
   const ingredientPurchaseLock = useRef(false);
   const mixingTransactionLock = useRef(false);
+  const photoUploadLock = useRef(false);
+  const historyLoadLock = useRef(false);
+  const checkinSaveLock = useRef(false);
+  const legacyJournal = useRef<{ lastCheckin: string | null; lastActivity: string | null }>({ lastCheckin: null, lastActivity: null });
   const handledPomodoroDeadline = useRef<number | null>(null);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
   const currentTrack = playlist?.tracks.find((track) => track.id === playingTrackId) ?? null;
   const sceneAsset = getSceneAsset(game.scene, weather.kind, timePeriod);
   const renderedSceneUrl = `${sceneAsset}?v=${ROOM_SCENE_ASSET_VERSION}`;
+  useRoomDepth(roomRef, walking);
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
     const now = new Date();
     const current = localDate(now);
     setToday(current);
@@ -642,12 +660,7 @@ export default function Home() {
           merged.sleepiness = 100 - clamp(merged.sleepiness, 0, 100);
           merged.statModelVersion = 2;
         }
-        if (merged.lastCheckin) {
-          const previous = new Date(`${merged.lastCheckin}T00:00:00`);
-          const midnight = new Date(now);
-          midnight.setHours(0, 0, 0, 0);
-          if (Math.round((midnight.getTime() - previous.getTime()) / 86400000) > 1) merged.streak = 0;
-        }
+        merged.streak = getJournalStreak(merged.lastCheckin, merged.streak, current);
         const nowMs = now.getTime();
         merged.statsUpdatedAt = typeof parsed.statsUpdatedAt === "number" && parsed.statsUpdatedAt > 0 ? parsed.statsUpdatedAt : nowMs;
         const sleepingPets = (Object.keys(merged.petSleep) as PetId[])
@@ -679,7 +692,8 @@ export default function Home() {
           const sleep = merged.petSleep[id];
           if (id === merged.pet || !sleep.endsAt || getSleepRemainingMs(sleep.endsAt, nowMs) > 0) continue;
           const stats = merged.petStats[id];
-          merged.petStats[id] = { ...stats, sleepiness: Math.max(0, stats.sleepiness - sleep.rest), statsUpdatedAt: nowMs };
+          const settled = settlePetSleep(stats.energy, stats.sleepiness, stats.statsUpdatedAt, sleep.endsAt, sleep.rest, nowMs);
+          merged.petStats[id] = { energy: settled.energy, sleepiness: settled.sleepiness, statsUpdatedAt: settled.statsUpdatedAt };
           merged.petSleep[id] = { endsAt: null, rest: 0, furnitureId: null };
         }
         const activeSleep = merged.petSleep[merged.pet];
@@ -687,12 +701,14 @@ export default function Home() {
         merged.sleepRest = activeSleep.rest;
         const sleepRemaining = getSleepRemainingMs(merged.sleepEndsAt, nowMs);
         if (merged.sleepEndsAt && sleepRemaining === 0) {
-          merged.sleepiness = Math.max(0, merged.sleepiness - merged.sleepRest);
+          const settled = settlePetSleep(merged.energy, merged.sleepiness, merged.statsUpdatedAt, merged.sleepEndsAt, merged.sleepRest, nowMs);
+          merged.energy = settled.energy;
+          merged.sleepiness = settled.sleepiness;
+          merged.statsUpdatedAt = settled.statsUpdatedAt;
           merged.petSleep[merged.pet] = { endsAt: null, rest: 0, furnitureId: null };
           merged.catFurniture = null;
           merged.sleepEndsAt = null;
           merged.sleepRest = 0;
-          merged.statsUpdatedAt = nowMs;
         } else if (sleepRemaining > 0) {
           merged.catFurniture = activeSleep.furnitureId;
           merged.statsUpdatedAt = nowMs;
@@ -702,6 +718,7 @@ export default function Home() {
           Object.assign(merged, decayPetStatsByTime(merged.energy, merged.sleepiness, merged.statsUpdatedAt, nowMs));
         }
         merged.petStats[merged.pet] = { energy: merged.energy, sleepiness: merged.sleepiness, statsUpdatedAt: merged.statsUpdatedAt };
+        legacyJournal.current = { lastCheckin: merged.lastCheckin, lastActivity: merged.lastActivity };
         setGame(merged);
         setInspectedPetId(merged.pet);
       } catch {
@@ -714,7 +731,32 @@ export default function Home() {
       queueMicrotask(() => setToast("备份已完整导入，Windows 数据已在这台电脑恢复"));
     }
     setReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!ready) return;
+    const syncDate = () => {
+      const now = new Date();
+      const date = localDate(now);
+      setToday(date);
+      setDateLabel(now.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
+      setGame((current) => {
+        const streak = getJournalStreak(current.lastCheckin, current.streak, date);
+        return streak === current.streak ? current : { ...current, streak };
+      });
+    };
+    const timer = window.setInterval(syncDate, 30_000);
+    const syncVisibleDate = () => { if (document.visibilityState === "visible") syncDate(); };
+    window.addEventListener("focus", syncDate);
+    document.addEventListener("visibilitychange", syncVisibleDate);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", syncDate);
+      document.removeEventListener("visibilitychange", syncVisibleDate);
+    };
+  }, [ready]);
 
   useEffect(() => {
     let cancelled = false;
@@ -743,32 +785,39 @@ export default function Home() {
           createdAt: record.createdAt ?? `${record.date}T00:00:00`,
           photo: record.photo ?? null,
         }));
-        if (!cancelled) setHistory(records);
+        if (!cancelled) { setHistory(records); setHistoryReady(true); }
         return;
       }
       try {
         const response = await fetch(`/api/checkins?device=${encodeURIComponent(deviceId)}`);
         if (!response.ok) throw new Error();
-        const data = await response.json() as { records: CheckinRecord[] };
+        const data = await response.json() as HistoryBatch;
         let records = data.records;
-        if (!records.length && game.lastCheckin && game.lastActivity) {
+        const legacy = legacyJournal.current;
+        if (!records.length && legacy.lastCheckin && legacy.lastActivity) {
           const migrated = await fetch("/api/checkins", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ deviceId, date: game.lastCheckin, content: game.lastActivity, category: "其他", rating: null, reward: null }),
+            body: JSON.stringify({ deviceId, date: legacy.lastCheckin, content: legacy.lastActivity, category: "其他", rating: null, reward: null }),
           });
-          if (migrated.ok) records = [(await migrated.json() as { record: CheckinRecord }).record];
+          if (migrated.ok) {
+            records = [(await migrated.json() as { record: CheckinRecord }).record];
+            data.total = 1;
+            data.totalDays = 1;
+          }
         }
         if (!cancelled) {
           setHistory(records);
+          setHistoryMeta({ total: data.total, totalDays: data.totalDays, nextCursor: data.nextCursor });
+          setHistoryReady(true);
         }
       } catch {
-        if (!cancelled) setToast("历史记录暂时无法载入");
+        if (!cancelled) { setHistoryError(true); setToast("历史记录暂时无法载入，请重试"); }
       }
     };
     loadHistory();
     return () => { cancelled = true; };
-  }, [deviceId, ready]);
+  }, [deviceId, ready, historyRetry]);
 
   useEffect(() => {
     const syncTimePeriod = () => setTimePeriod(getTimePeriod());
@@ -978,6 +1027,7 @@ export default function Home() {
       if (activeRemaining === 0) setInterruptConfirm(false);
       if (!completedPets.length) return;
       setGame((current) => {
+        let energy = current.energy;
         let sleepiness = current.sleepiness;
         let statsUpdatedAt = current.statsUpdatedAt;
         const petStats = { ...current.petStats };
@@ -986,18 +1036,22 @@ export default function Home() {
           const sleep = current.petSleep[id];
           if (!sleep.endsAt || getSleepRemainingMs(sleep.endsAt, now) > 0) continue;
           if (id === current.pet) {
-            sleepiness = Math.max(0, current.sleepiness - sleep.rest);
-            statsUpdatedAt = now;
-            petStats[id] = { energy: current.energy, sleepiness, statsUpdatedAt };
+            const settled = settlePetSleep(current.energy, current.sleepiness, current.statsUpdatedAt, sleep.endsAt, sleep.rest, now);
+            energy = settled.energy;
+            sleepiness = settled.sleepiness;
+            statsUpdatedAt = settled.statsUpdatedAt;
+            petStats[id] = { energy, sleepiness, statsUpdatedAt };
           } else {
             const stats = current.petStats[id];
-            petStats[id] = { ...stats, sleepiness: Math.max(0, stats.sleepiness - sleep.rest), statsUpdatedAt: now };
+            const settled = settlePetSleep(stats.energy, stats.sleepiness, stats.statsUpdatedAt, sleep.endsAt, sleep.rest, now);
+            petStats[id] = { energy: settled.energy, sleepiness: settled.sleepiness, statsUpdatedAt: settled.statsUpdatedAt };
           }
           petSleep[id] = { endsAt: null, rest: 0, furnitureId: null };
         }
         const currentActiveSleep = petSleep[current.pet] ?? INITIAL_GAME.petSleep[current.pet];
         return {
           ...current,
+          energy,
           sleepiness,
           statsUpdatedAt,
           petStats,
@@ -1029,7 +1083,7 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
-    const frames = pets.flatMap((item) => [item.idle, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames]);
+    const frames = ["/game/food-bowl-empty.png", ...pets.flatMap((item) => [item.idle, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames])];
     animationImages.current = frames.map((src) => {
       const image = new Image();
       image.src = src;
@@ -1065,8 +1119,8 @@ export default function Home() {
 
   useEffect(() => {
     if (!walking) {
-      setWalkFrame(0);
-      return;
+      const timer = window.setTimeout(() => setWalkFrame(0), 0);
+      return () => window.clearTimeout(timer);
     }
     const timer = window.setInterval(() => setWalkFrame((frame) => (frame + 1) % 4), WALK_FRAME_MS);
     return () => window.clearInterval(timer);
@@ -1089,19 +1143,18 @@ export default function Home() {
   }, [scratching]);
 
   useEffect(() => {
-    if (game.scene !== "room" || !game.purchased.includes("yarnBasket") || overlay || decorating || walking || resting || lounging || wakingUp || scratching) return;
+    if (feedingBusy || game.scene !== "room" || !game.purchased.includes("yarnBasket") || overlay || decorating || walking || resting || lounging || wakingUp || scratching) return;
     const timer = window.setInterval(() => {
       if (Math.random() >= .2) return;
       const item = furnitureItems.find((furniture) => furniture.id === "yarnBasket")!;
       moveCatToFurniture(item, game.furniturePositions.yarnBasket ?? DEFAULT_FURNITURE_POSITIONS.yarnBasket);
     }, 60_000);
     return () => window.clearInterval(timer);
-  }, [decorating, game.catFurniture, game.catPosition.x, game.catPosition.y, game.energy, game.furniturePositions.yarnBasket, game.pet, game.purchased, game.scene, lounging, overlay, resting, scratching, wakingUp, walking]);
+  }, [feedingBusy, decorating, game.catFurniture, game.catPosition.x, game.catPosition.y, game.energy, game.furniturePositions.yarnBasket, game.pet, game.purchased, game.scene, lounging, overlay, resting, scratching, wakingUp, walking]);
 
   useEffect(() => {
     if (!wakingUp) return;
     let frame = 0;
-    setWakeFrame(0);
     const timer = window.setInterval(() => {
       frame += 1;
       if (frame >= WAKE_SEQUENCE_LENGTH) {
@@ -1118,7 +1171,7 @@ export default function Home() {
   }, [wakingUp]);
 
   useEffect(() => {
-    if (overlay || walking || decorating || resting || lounging || scratching || wakingUp) return;
+    if (feedingBusy || overlay || walking || decorating || resting || lounging || scratching || wakingUp) return;
     if (statusIdle) {
       const timer = window.setTimeout(() => {
         if (desiredCatStatus !== catStatus) {
@@ -1149,7 +1202,7 @@ export default function Home() {
       setStatusIdle(true);
     }, currentFrame.duration);
     return () => window.clearTimeout(timer);
-  }, [catStatus, decorating, desiredCatStatus, lounging, overlay, resting, scratching, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
+  }, [feedingBusy, catStatus, decorating, desiredCatStatus, lounging, overlay, resting, scratching, statusFrame, statusIdle, statusTransition, statusTransitionTarget, wakingUp, walking]);
 
   useEffect(() => {
     if (game.scene !== "room" || overlay || decorating || sceneTransition) return;
@@ -1164,33 +1217,18 @@ export default function Home() {
       const move = moves[event.key];
       if (!move) return;
       event.preventDefault();
+      if (feedingRef.current.phase !== "IDLE") return;
       if (resting) {
         requestSleepInterrupt();
         return;
       }
       if (refuseMovement()) return;
-      setDirection((current) => getWalkDirection({ x: 0, y: 0 }, move, current));
-      setWalkDuration(WALK_CYCLE_MS);
-      const obstacles = getSceneObstacles();
-      setGame((current) => ({
-        ...current,
-        catPosition: clampToScene({
-          x: current.catPosition.x + move.x,
-          y: current.catPosition.y + move.y,
-        }, current.scene, obstacles),
-        catFurniture: null,
-      }));
-      resetStatusAnimation();
-      setResting(false);
-      setLounging(false);
-      setScratching(false);
-      setJumping(false);
-      setWalking(true);
-      finishWalkAfter(WALK_CYCLE_MS);
+      const position = readCatPosition(game.pet);
+      walkCatTo({ x: position.x + move.x, y: position.y + move.y });
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [decorating, game.energy, game.scene, overlay, resting, sceneTransition, sleepRemainingMs, wakingUp]);
+  }, [decorating, game.pet, game.purchased, game.furniturePositions, game.catFurniture, game.energy, game.scene, overlay, resting, sceneTransition, sleepRemainingMs, wakingUp]);
 
   useEffect(() => {
     const onEscape = (event: KeyboardEvent) => {
@@ -1227,6 +1265,7 @@ export default function Home() {
 
   useEffect(() => () => {
     window.clearTimeout(walkingTimer.current);
+    window.cancelAnimationFrame(motionFrame.current);
     window.clearTimeout(headShakeTimer.current);
     window.clearTimeout(mixingTimer.current);
     window.clearTimeout(pouringTimer.current);
@@ -1277,7 +1316,7 @@ export default function Home() {
     : 0;
   const selectedFoodItem = foodItems.find((item) => item.id === selectedFood) ?? foodItems[0];
   const historyDates = [...new Set(history.map((record) => record.date))];
-  const historyPageCount = Math.max(1, Math.ceil(historyDates.length / 2));
+  const historyPageCount = Math.max(1, Math.ceil((historyMeta?.totalDays ?? historyDates.length) / 2));
   const historyPageDates = historyDates.slice(historyPage * 2, historyPage * 2 + 2);
   const pomodoroRemaining = getPomodoroRemaining(game.pomodoro, pomodoroNow);
   const pomodoroDuration = game.pomodoro.phase === "focus" ? POMODORO_FOCUS_MS : POMODORO_BREAK_MS;
@@ -1306,8 +1345,53 @@ export default function Home() {
   const activePose: CatPose = resting || lounging ? "sleep" : wakingUp ? "wake" : walking ? "walk" : currentStatusFrame.pose;
   const catAsset = scratching ? pet.scratchFrames[scratchFrame] : resting || lounging ? pet.sleep : wakingUp ? wakeSequenceAssets[wakeFrame] : walking ? pet.walkFrames[walkFrame] : statusAsset;
   const facingLeft = direction === "left" || direction === "up-left" || direction === "down-left";
-  const motionX = walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (facingLeft ? -1 : 1);
-  const motionY = walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
+  const motionX = feedingBusy || walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (facingLeft ? -1 : 1);
+  const motionY = feedingBusy || walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
+
+  useEffect(() => {
+    if (!ready || game.scene !== "room" || feedingBusy) return;
+    const update = () => {
+      const placement = getBowlPlacement();
+      if (placement) setBowlPosition((current) => current.x === placement.bowl.x && current.y === placement.bowl.y ? current : placement.bowl);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, [ready, game.scene, game.furniturePositions, game.purchased, feedingBusy]);
+
+  useEffect(() => {
+    if (!feedingBusy) return;
+    let frame = 0;
+    let last: number | null = null;
+    const tick = (time: number) => {
+      const previous = feedingRef.current;
+      // Pause safely in background tabs instead of skipping the visible eating sequence.
+      const next = advanceFeeding(previous, last === null ? 0 : Math.min(80, time - last));
+      last = time;
+      feedingRef.current = next;
+      setFeeding(next);
+      const moving = next.phase === "WALK_TO_BOWL";
+      setWalking(moving);
+      if (next.position.x !== previous.position.x || next.position.y !== previous.position.y) {
+        setDirection(getWalkDirection(previous.position, next.position));
+        setGame((current) => ({ ...current, catPosition: next.position, catFurniture: null }));
+      }
+      if (["ALIGN_AT_BOWL", "LOWER_HEAD", "EATING", "FINISH_EATING"].includes(next.phase)) setDirection("right");
+      if (previous.bowl === "filled" && next.bowl === "empty") {
+        setGame((current) => ({ ...current, energy: Math.min(100, current.energy + next.energy) }));
+      }
+      if (next.phase === "IDLE") {
+        setWalking(false);
+        setStatusFrame(0);
+        setStatusIdle(true);
+        setToast("吃饱啦，继续在小屋里玩耍吧");
+        return;
+      }
+      frame = window.requestAnimationFrame(tick);
+    };
+    frame = window.requestAnimationFrame(tick);
+    return () => window.cancelAnimationFrame(frame);
+  }, [feedingBusy]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1416,16 +1500,16 @@ export default function Home() {
     setOverlay(null);
   }
 
-  function nextPhotoBoardSlot() {
-    const occupied = new Set(photoBoardPhotos.map((photo) => photo.slot));
+  function nextPhotoBoardSlot(photos: PhotoBoardPhoto[]) {
+    const occupied = new Set(photos.map((photo) => photo.slot));
     let slot = 0;
     while (occupied.has(slot)) slot += 1;
     return slot;
   }
 
   function addPhotoBoardPhoto(photo: Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">) {
-    const next = { ...photo, caption: photo.caption ?? "", createdAt: new Date().toISOString(), slot: nextPhotoBoardSlot(), rotation: stablePhotoRotation(photo.id) };
-    setPhotoBoardPhotos((current) => [...current, next]);
+    const next = { ...photo, caption: photo.caption ?? "", createdAt: new Date().toISOString(), rotation: stablePhotoRotation(photo.id) };
+    setPhotoBoardPhotos((current) => [...current, { ...next, slot: nextPhotoBoardSlot(current) }]);
     setUploadingPhotoId(next.id);
     window.setTimeout(() => setUploadingPhotoId((id) => id === next.id ? null : id), 900);
     setToast("照片已经挂到照片板上了");
@@ -1433,14 +1517,21 @@ export default function Home() {
 
   async function uploadDesktopPhotoBoardPhoto() {
     const api = window.gameUpdater?.photoBoard;
-    if (!api || uploadingPhotoId) return;
-    const result = await api.select().catch(() => ({ status: "error", message: "照片导入失败" } as PhotoBoardActionResult));
-    if (result.status === "selected" && result.photo?.id && result.photo.fileName) addPhotoBoardPhoto(result.photo as Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">);
-    else if (result.status === "error") setToast(result.message ?? "照片导入失败");
+    if (!api || uploadingPhotoId || photoUploadLock.current) return;
+    photoUploadLock.current = true;
+    setPhotoUploadBusy(true);
+    try {
+      const result = await api.select();
+      if (result.status === "selected" && result.photo?.id && result.photo.fileName) addPhotoBoardPhoto(result.photo as Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">);
+      else if (result.status === "error") setToast(result.message ?? "照片导入失败");
+    } catch { setToast("照片导入失败"); }
+    finally { photoUploadLock.current = false; setPhotoUploadBusy(false); }
   }
 
   async function uploadWebPhotoBoardPhoto(file: File) {
-    if (uploadingPhotoId) return;
+    if (uploadingPhotoId || photoUploadLock.current || !deviceId) return;
+    photoUploadLock.current = true;
+    setPhotoUploadBusy(true);
     try {
       const prepared = await preparePhotoFile(file);
       const form = new FormData();
@@ -1450,6 +1541,7 @@ export default function Home() {
       const data = await response.json() as { photo: { id: string; key: string; width: number; height: number } };
       addPhotoBoardPhoto(data.photo);
     } catch (error) { setToast(error instanceof Error ? error.message : "照片导入失败"); }
+    finally { photoUploadLock.current = false; setPhotoUploadBusy(false); }
   }
 
   function deletePhotoBoardPhoto(photo: PhotoBoardPhoto) {
@@ -1469,6 +1561,29 @@ export default function Home() {
     setPhotoBoardPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, caption } : photo));
   }
 
+  async function nextHistoryPage() {
+    const nextPage = historyPage + 1;
+    if (nextPage >= historyPageCount || historyLoadLock.current) return;
+    if (historyDates.length >= Math.min((nextPage + 1) * 2, historyMeta?.totalDays ?? historyDates.length) || !historyMeta?.nextCursor) {
+      setHistoryPage(nextPage);
+      return;
+    }
+    historyLoadLock.current = true;
+    setHistoryLoading(true);
+    try {
+      const response = await fetch(`/api/checkins?device=${encodeURIComponent(deviceId)}&before=${encodeURIComponent(historyMeta.nextCursor)}`);
+      if (!response.ok) throw new Error();
+      const data = await response.json() as HistoryBatch;
+      setHistory((current) => {
+        const ids = new Set(current.map((record) => record.id));
+        return [...current, ...data.records.filter((record) => !ids.has(record.id))];
+      });
+      setHistoryMeta((current) => ({ total: Math.max(current?.total ?? 0, data.total), totalDays: Math.max(current?.totalDays ?? 0, data.totalDays), nextCursor: data.nextCursor }));
+      if (data.records.length) setHistoryPage((current) => current === nextPage - 1 ? nextPage : current);
+    } catch { setToast("旧日记暂时无法载入，请再试一次"); }
+    finally { historyLoadLock.current = false; setHistoryLoading(false); }
+  }
+
   async function exportDesktopBackup() {
     const storage = window.gameUpdater?.storage;
     if (!storage || dataTransferBusy) return;
@@ -1485,6 +1600,7 @@ export default function Home() {
     setDataTransferBusy("import");
     const result = await storage.importBackup().catch(() => ({ status: "error", message: "备份导入失败" } as BackupActionResult));
     if (result.status === "imported") {
+      storage.refreshCache();
       window.sessionStorage.setItem("oh-backup-imported", "yes");
       window.location.reload();
       return;
@@ -1661,16 +1777,8 @@ export default function Home() {
     setStatusTransitionTarget(null);
   }
 
-  function finishWalkAfter(duration: number, onFinished?: () => void) {
-    window.clearTimeout(walkingTimer.current);
-    walkingTimer.current = window.setTimeout(() => {
-      setWalking(false);
-      setJumping(false);
-      onFinished?.();
-    }, duration + 60);
-  }
-
   function requestSleepInterrupt() {
+    if (feedingRef.current.phase !== "IDLE") return;
     if (!resting || wakingUp || interruptConfirm || Date.now() < sleepInterruptReadyAt.current) return;
     setInterruptConfirm(true);
   }
@@ -1699,6 +1807,7 @@ export default function Home() {
   }
 
   function refuseMovement(allowNoEnergy = false) {
+    if (feedingRef.current.phase !== "IDLE") return true;
     if (wakingUp) {
       setToast("正在打哈欠起床，请稍等一下");
       return true;
@@ -1717,15 +1826,45 @@ export default function Home() {
     return true;
   }
 
-  function getSceneObstacles(excludeFurniture?: string): Rect[] {
+  function getSceneObstacles(excludeFurniture?: string, includeOccupied = false, includeBowl = true): Rect[] {
     if (game.scene === "yard") return YARD_OBSTACLES;
-    return [...ROOM_FIXED_OBSTACLES, ...ownedFurniture.flatMap((item) => {
-      if (item.id === excludeFurniture || item.id === game.catFurniture) return [];
+    const room = roomRef.current?.getBoundingClientRect();
+    const catWidth = roomRef.current?.querySelector<HTMLElement>(".walking-cat")?.getBoundingClientRect().width ?? 100;
+    const bowl = roomRef.current?.querySelector<HTMLElement>(".food-bowl")?.getBoundingClientRect();
+    const bowlObstacles = includeBowl && room?.width && bowl?.width ? [furnitureCollision(bowl, room, catWidth)] : [];
+    return [...ROOM_FIXED_OBSTACLES, ...bowlObstacles, ...ownedFurniture.flatMap((item) => {
+      if (item.id === "rug") return [];
+      if (item.id === excludeFurniture || !includeOccupied && item.id === game.catFurniture) return [];
+      const bounds = roomRef.current?.querySelector<HTMLElement>(`[data-furniture="${item.id}"]`)?.getBoundingClientRect();
+      if (room?.width && bounds?.width) return [furnitureCollision(bounds, room, catWidth)];
       const footprint = FURNITURE_FOOTPRINTS[item.id];
       if (!footprint) return [];
       const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
       return [{ left: position.x - footprint.halfWidth, right: position.x + footprint.halfWidth, top: position.y - footprint.height, bottom: position.y + 2 }];
     })];
+  }
+
+  function readCatPosition(id: PetId): Point {
+    const room = roomRef.current?.getBoundingClientRect();
+    const element = roomRef.current?.querySelector<HTMLElement>(`[data-pet-id="${id}"]`);
+    const bounds = (element?.querySelector<HTMLElement>(".cat-base") ?? element)?.getBoundingClientRect();
+    if (!room?.width || !bounds?.width) return id === game.pet ? game.catPosition : game.petPositions[id] ?? ROOMMATE_POSITIONS[id];
+    return { x: (bounds.left + bounds.width / 2 - room.left) / room.width * 100, y: (bounds.top + bounds.height * .79 - room.top) / room.height * 100 };
+  }
+
+  function getBowlPlacement(petId = game.pet) {
+    const room = roomRef.current?.getBoundingClientRect();
+    const cat = roomRef.current?.querySelector<HTMLElement>(".walking-cat")?.getBoundingClientRect();
+    const bowl = roomRef.current?.querySelector<HTMLElement>(".food-bowl")?.getBoundingClientRect();
+    const mouthOffset = getFeedingDockOffset(petId, cat?.width ?? 100, bowl?.width ?? 64);
+    const offset = room?.width ? { x: mouthOffset.x / room.width * 100, y: mouthOffset.y / room.height * 100 } : { x: 4, y: 4 };
+    const hudObstacles: Rect[] = room?.width ? Array.from(document.querySelectorAll<HTMLElement>(".pet-status, .game-dock")).map((node) => {
+      const bounds = node.getBoundingClientRect();
+      return { left: (bounds.left - room.left) / room.width * 100, right: (bounds.right - room.left) / room.width * 100,
+        top: (bounds.top - room.top) / room.height * 100, bottom: (bounds.bottom - room.top) / room.height * 100 };
+    }) : [];
+    const clearance = room?.width && bowl ? { x: bowl.width * .43 / room.width * 100, y: bowl.width * .26 / room.height * 100 } : undefined;
+    return findBowlPlacement([...getSceneObstacles(undefined, true, false), ...hudObstacles], offset, clearance);
   }
 
   function playTrack(track: PlaylistTrack) {
@@ -1830,9 +1969,14 @@ export default function Home() {
   }
 
   function walkCatTo(target: Point, onFinished?: () => void, shouldJump = false, excludeFurniture?: string) {
+    if (feedingRef.current.phase !== "IDLE") return;
     const obstacles = getSceneObstacles(excludeFurniture);
-    const path = getWalkPath(game.catPosition, target, game.scene, obstacles);
-    let from = game.catPosition;
+    const start = readCatPosition(game.pet);
+    const path = getWalkPath(start, target, game.scene, obstacles);
+    if (!path.length) { setToast("这里暂时走不过去，试试其他位置吧"); return; }
+    window.clearTimeout(walkingTimer.current);
+    window.cancelAnimationFrame(motionFrame.current);
+    let from = start;
     resetStatusAnimation();
     setResting(false);
     setLounging(false);
@@ -1840,22 +1984,26 @@ export default function Home() {
     setJumping(shouldJump);
     setWalking(true);
     const step = (index: number) => {
-      const point = path[index];
-      const duration = Math.round(clamp(Math.hypot(point.x - from.x, point.y - from.y) * 14, WALK_CYCLE_MS * 2, 900));
-      const stepDirection = getWalkDirection(from, point);
+      const destination = path[index];
+      const origin = from;
+      const duration = Math.round(clamp(Math.hypot(destination.x - from.x, destination.y - from.y) * 14, WALK_CYCLE_MS * 2, 900));
+      const stepDirection = getWalkDirection(from, destination);
       setDirection(stepDirection);
-      setWalkDuration(duration);
-      setGame((current) => ({ ...current, catPosition: point, catFurniture: null }));
-      from = point;
-      window.clearTimeout(walkingTimer.current);
-      walkingTimer.current = window.setTimeout(() => {
-        if (index + 1 < path.length) step(index + 1);
-        else {
-          setWalking(false);
-          setJumping(false);
-          onFinished?.();
-        }
-      }, duration + 60);
+      setWalkDuration(0);
+      let startedAt: number | null = null;
+      const animate = (time: number) => {
+        startedAt ??= time;
+        const ratio = Math.min(1, (time - startedAt) / duration);
+        const point = { x: origin.x + (destination.x - origin.x) * ratio, y: origin.y + (destination.y - origin.y) * ratio };
+        setGame((current) => ({ ...current, catPosition: point, catFurniture: null }));
+        from = point;
+        if (ratio < 1) motionFrame.current = window.requestAnimationFrame(animate);
+        else walkingTimer.current = window.setTimeout(() => {
+          if (index + 1 < path.length) step(index + 1);
+          else { setWalking(false); setJumping(false); onFinished?.(); }
+        }, 60);
+      };
+      motionFrame.current = window.requestAnimationFrame(animate);
     };
     step(0);
   }
@@ -1903,35 +2051,42 @@ export default function Home() {
   async function checkIn(event: React.FormEvent) {
     event.preventDefault();
     const content = noteText.trim();
-    if (!ready || !content || !deviceId || savingCheckin) return;
-    const firstRecordToday = game.lastCheckin !== today;
-    const next = game.streak + 1;
-    let reward = getJournalReward(todayRecordCount + 1);
+    if (!ready || !content || !deviceId || savingCheckin || checkinSaveLock.current || !historyReady) return;
+    const submittedDraft = noteText;
+    const submittedAt = new Date();
+    const date = localDate(submittedAt);
+    setToday(date);
+    setDateLabel(submittedAt.toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "short" }));
+    const recordCount = history.filter((record) => record.date === date).length;
+    let reward: number = getJournalReward(recordCount + 1);
+    checkinSaveLock.current = true;
     setSavingCheckin(true);
     try {
       let record: CheckinRecord;
       if (navigator.userAgent.includes("BerryWorkoutDesktop")) {
-        record = { id: Date.now(), date: today, content, category, rating, reward, createdAt: new Date().toISOString() };
+        record = { id: Date.now(), date, content, category, rating, reward, createdAt: submittedAt.toISOString() };
         const records = [record, ...history];
         writePersisted("berry-workout-history", JSON.stringify(records));
       } else {
         const response = await fetch("/api/checkins", {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ deviceId, date: today, content, category, rating }),
+          body: JSON.stringify({ deviceId, date, content, category, rating }),
         });
         if (!response.ok) throw new Error();
         record = (await response.json() as { record: CheckinRecord }).record;
         reward = record.reward ?? 0;
       }
-      setHistory((records) => [record, ...records]);
-      setGame((current) => ({ ...current, berries: current.berries + reward, streak: firstRecordToday ? next : current.streak, lastCheckin: today, lastActivity: content }));
-      setNoteText("");
+      setHistory((records) => [record, ...records.filter((item) => item.id !== record.id)]);
+      setHistoryMeta((meta) => meta ? { ...meta, total: meta.total + 1, totalDays: meta.totalDays + (history.some((item) => item.date === date) ? 0 : 1) } : null);
+      setGame((current) => ({ ...current, berries: current.berries + reward, streak: getJournalStreak(current.lastCheckin, current.streak, date, true), lastCheckin: date, lastActivity: content }));
+      setNoteText((draft) => draft === submittedDraft ? "" : draft);
       writePersisted("berry-journal-category", category);
       setToast(reward ? `今天的记忆已经收好啦，获得 ${reward} 个草莓 🍓` : "今天的三次记录奖励已经领完，记忆仍然收好啦");
     } catch {
       setToast("记录保存失败，请稍后再试");
     } finally {
+      checkinSaveLock.current = false;
       setSavingCheckin(false);
     }
   }
@@ -1950,6 +2105,7 @@ export default function Home() {
   }
 
   function buyFurniture(item: (typeof furnitureItems)[number]) {
+    if (feedingRef.current.phase !== "IDLE") { setToast("等猫咪吃完再摆放新家具吧"); return; }
     if (game.purchased.includes(item.id)) return;
     if (game.berries < item.price) {
       setToast("草莓不够，再写几篇日记吧！");
@@ -1993,6 +2149,8 @@ export default function Home() {
   }
 
   function feedPet(foodId: FoodId) {
+    if (feedingRef.current.phase !== "IDLE") return;
+    if (!ready || sceneTransition || decorating || game.scene !== "room") { setToast("回到小屋后再投喂吧"); return; }
     const item = foodItems.find((food) => food.id === foodId)!;
     if (!game.inventory[foodId]) {
       setToast("背包里没有这种食物了");
@@ -2002,16 +2160,43 @@ export default function Home() {
       setToast(`${inspectedPet.name} 现在精神满满！`);
       return;
     }
-    setGame((current) => inspectedPetId === current.pet ? {
-      ...current,
-      inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
-      energy: Math.min(100, current.energy + item.energy),
-    } : {
-      ...current,
-      inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
-      petStats: { ...current.petStats, [inspectedPetId]: { ...current.petStats[inspectedPetId], energy: Math.min(100, current.petStats[inspectedPetId].energy + item.energy), statsUpdatedAt: Date.now() } },
+    const sleep = game.petSleep[inspectedPetId];
+    const placement = getBowlPlacement(inspectedPetId);
+    const from = readCatPosition(inspectedPetId);
+    const session = placement && beginFeeding(feedingRef.current, {
+      from, target: placement.target, obstacles: getSceneObstacles(sleep?.furnitureId ?? undefined),
+      sleeping: getSleepRemainingMs(sleep?.endsAt) > 0 || inspectedPetId === game.pet && (lounging || wakingUp || currentStatusFrame.pose === "sleep"),
+      petId: inspectedPetId, foodId, energy: item.energy,
     });
-    setToast(`${inspectedPet.name} 吃掉了${item.name}，活力 +${item.energy}`);
+    if (!session) { setToast("碗边暂时走不过去，请先给猫咪留一点空地"); return; }
+    // Switch first, then acquire the synchronous session lock before any animation or inventory update.
+    if (inspectedPetId !== game.pet) switchControlledPet(inspectedPetId);
+    feedingRef.current = session;
+    setFeeding(session);
+    setBowlPosition(placement!.bowl);
+    window.clearTimeout(walkingTimer.current);
+    window.cancelAnimationFrame(motionFrame.current);
+    window.clearInterval(scratchTimer.current);
+    window.clearTimeout(headShakeTimer.current);
+    setWalking(false);
+    setJumping(false);
+    setResting(false);
+    setLounging(false);
+    setScratching(false);
+    setWakingUp(false);
+    setHeadShaking(false);
+    setInterruptConfirm(false);
+    setSleepRemainingMs(0);
+    setWalkDuration(0);
+    resetStatusAnimation();
+    setGame((current) => ({
+      ...current, catPosition: from,
+      inventory: { ...current.inventory, [foodId]: current.inventory[foodId] - 1 },
+      petSleep: { ...current.petSleep, [inspectedPetId]: { endsAt: null, rest: 0, furnitureId: null } },
+      sleepEndsAt: null, sleepRest: 0, statsUpdatedAt: Date.now(),
+    }));
+    setOverlay(null);
+    setToast(session.phase === "WAKING" ? `${inspectedPet.name}闻到香味，起床吃饭啦` : `${inspectedPet.name}正走向食物碗`);
   }
 
   function cookDish(dish: (typeof cookedDishes)[number]) {
@@ -2034,15 +2219,15 @@ export default function Home() {
   }
 
   function switchControlledPet(id: PetId) {
+    if (feedingRef.current.phase !== "IDLE") return;
     if (id === game.pet) return;
     const now = Date.now();
     const targetSleep = game.petSleep[id] ?? INITIAL_GAME.petSleep[id];
     const targetSleepRemaining = getSleepRemainingMs(targetSleep.endsAt, now);
     const savedTargetStats = game.petStats[id] ?? INITIAL_GAME.petStats[id];
-    const targetStats = targetSleepRemaining > 0
-      ? { ...savedTargetStats, statsUpdatedAt: now }
-      : decayPetStatsByTime(savedTargetStats.energy, savedTargetStats.sleepiness, savedTargetStats.statsUpdatedAt > 0 ? savedTargetStats.statsUpdatedAt : now, now);
+    const targetStats = settlePetSleep(savedTargetStats.energy, savedTargetStats.sleepiness, savedTargetStats.statsUpdatedAt > 0 ? savedTargetStats.statsUpdatedAt : now, targetSleep.endsAt, targetSleep.rest, now);
     window.clearTimeout(walkingTimer.current);
+    window.cancelAnimationFrame(motionFrame.current);
     setWalking(false);
     setJumping(false);
     setLounging(false);
@@ -2063,9 +2248,8 @@ export default function Home() {
     setGame((current) => {
       const currentTargetStats = current.petStats[id] ?? INITIAL_GAME.petStats[id];
       const currentTargetSleep = current.petSleep[id] ?? INITIAL_GAME.petSleep[id];
-      const nextStats = getSleepRemainingMs(currentTargetSleep.endsAt, now) > 0
-        ? { ...currentTargetStats, statsUpdatedAt: now }
-        : decayPetStatsByTime(currentTargetStats.energy, currentTargetStats.sleepiness, currentTargetStats.statsUpdatedAt > 0 ? currentTargetStats.statsUpdatedAt : now, now);
+      const settled = settlePetSleep(currentTargetStats.energy, currentTargetStats.sleepiness, currentTargetStats.statsUpdatedAt > 0 ? currentTargetStats.statsUpdatedAt : now, currentTargetSleep.endsAt, currentTargetSleep.rest, now);
+      const nextStats = { energy: settled.energy, sleepiness: settled.sleepiness, statsUpdatedAt: settled.statsUpdatedAt };
       return {
         ...current,
         pet: id,
@@ -2075,6 +2259,7 @@ export default function Home() {
           [current.pet]: { energy: current.energy, sleepiness: current.sleepiness, statsUpdatedAt: current.statsUpdatedAt },
           [id]: nextStats,
         },
+        petSleep: settled.sleepEnded ? { ...current.petSleep, [id]: { endsAt: null, rest: 0, furnitureId: null } } : current.petSleep,
         ...nextStats,
         catPosition: current.petPositions[id] ?? ROOMMATE_POSITIONS[id],
         petPositions: {
@@ -2083,13 +2268,14 @@ export default function Home() {
           [id]: current.petPositions[id] ?? ROOMMATE_POSITIONS[id],
         },
         catFurniture: getSleepRemainingMs(currentTargetSleep.endsAt, now) > 0 ? currentTargetSleep.furnitureId : null,
-        sleepEndsAt: currentTargetSleep.endsAt,
-        sleepRest: currentTargetSleep.rest,
+        sleepEndsAt: settled.sleepEndsAt,
+        sleepRest: settled.sleepRest,
       };
     });
   }
 
   function cycleControlledPet() {
+    if (feedingRef.current.phase !== "IDLE") return;
     const index = game.adoptedPets.indexOf(game.pet);
     const id = game.adoptedPets[(index + 1) % game.adoptedPets.length];
     switchControlledPet(id);
@@ -2097,6 +2283,7 @@ export default function Home() {
   }
 
   function adoptPet(id: PetId) {
+    if (feedingRef.current.phase !== "IDLE") return;
     const chosen = pets.find((item) => item.id === id)!;
     if (game.adoptedPets.includes(id)) {
       switchControlledPet(id);
@@ -2108,11 +2295,13 @@ export default function Home() {
   }
 
   function resetFurniture() {
+    if (feedingRef.current.phase !== "IDLE") return;
     setGame((current) => ({ ...current, furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS } }));
     setToast("家具已经恢复到推荐位置");
   }
 
   function changeScene() {
+    if (feedingRef.current.phase !== "IDLE") { setToast("等猫咪吃完再出门吧"); return; }
     if (sceneTransition) return;
     if (resting) {
       setToast(`${pet.name}正在睡觉，还剩 ${formatSleepRemaining(sleepRemainingMs)}`);
@@ -2127,6 +2316,7 @@ export default function Home() {
     setLounging(false);
     setScratching(false);
     window.clearTimeout(walkingTimer.current);
+    window.cancelAnimationFrame(motionFrame.current);
     setWalking(false);
     setSceneTransition(true);
     window.setTimeout(() => {
@@ -2309,11 +2499,13 @@ export default function Home() {
                 key={item.id}
                 type="button"
                 data-furniture={item.id}
+                data-scene-depth={item.id === "rug" ? "rug" : "furniture"}
                 className={`placed-furniture furniture-${item.id} ${dragging === item.id ? "dragging" : ""}`}
                 style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) }}
                 onPointerDown={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
+                  if (feedingRef.current.phase !== "IDLE") return;
                   if (decorating) setDragging(item.id);
                   else {
                     const heights = "platformHeights" in item ? item.platformHeights : undefined;
@@ -2329,6 +2521,9 @@ export default function Home() {
               </button>
             );
           })}
+
+          {game.scene === "room" && <FoodBowl state={feeding.bowl} position={bowlPosition} disabled={feedingBusy || decorating}
+            onClick={() => { setInspectedPetId(game.pet); openOverlay("bag"); }} />}
 
           {game.scene === "room" && game.adoptedPets.map((id) => {
             const controlled = id === game.pet;
@@ -2354,22 +2549,28 @@ export default function Home() {
                         : roommateFrame.pose === "wake"
                           ? cat.wake
                           : cat.idle;
-              return <div className={`scene-cat roommate-cat ${roommateSleepRemaining > 0 ? "sleeping" : ""}`} key={id} style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) + 1 }}>
+              return <div className={`scene-cat roommate-cat ${roommateSleepRemaining > 0 ? "sleeping" : ""}`} data-pet-id={id} data-scene-depth="cat" data-on-furniture={roommateSleepRemaining > 0 ? roommateSleep.furnitureId ?? undefined : undefined} key={id} style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) + 1 }}>
                 <img className={`cat-base cat-pose-${roommateSleepRemaining > 0 ? "sleep" : roommateFrame.pose}`} src={roommateAsset} alt={roommateSleepRemaining > 0 ? `${game.petNames[id]}正在睡觉` : `${game.petNames[id]}正在${CAT_STATUS_ANIMATIONS[roommateStatus].name}`} style={{ translate: roommateSleepRemaining > 0 ? undefined : `${roommateFrame.x ?? 0}px ${roommateFrame.y ?? 0}px` }} />
                 <b>{roommateSleepRemaining > 0 ? `${game.petNames[id]} · ${formatSleepRemaining(roommateSleepRemaining)}` : game.petNames[id]}</b>
               </div>;
             }
             return <div
-              className={`scene-cat walking-cat ${walking ? "walking" : "status-animation"} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${facingLeft ? "facing-left" : ""}`}
+              className={`scene-cat walking-cat ${walking ? "walking" : "status-animation"} ${feedingBusy ? "feeding-cat" : ""} ${jumping ? "jumping" : ""} ${resting ? "resting" : ""} ${lounging ? "lounging" : ""} ${scratching ? "scratching" : ""} ${wakingUp ? "waking-up" : ""} ${headShaking ? "head-shaking" : ""} ${facingLeft ? "facing-left" : ""}`}
+              data-pet-id={id}
+              data-scene-depth="cat"
+              data-on-furniture={game.catFurniture ?? undefined}
+              data-feeding-state={feeding.phase}
               data-cat-status={desiredCatStatus}
               data-active-status={catStatus}
               key={id}
               style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(position.y) + 2, transitionDuration: `${walkDuration}ms` }}
             >
-              {walking
+              {["LOWER_HEAD", "EATING", "FINISH_EATING"].includes(feeding.phase)
+                ? <EatingSprite feeding={feeding} />
+                : walking
                 ? <span className="cat-base cat-walk-sprite cat-pose-walk" role="img" aria-label={`${game.petNames[id]}正在行走`} data-walk-direction={direction} data-walk-frame={walkFrame} style={{ backgroundImage: `url(${pet.walkSheet})`, "--walk-frame": walkFrame, "--walk-row": WALK_DIRECTION_ROW[direction] } as CSSProperties} />
-                : <img className={`cat-base cat-pose-${activePose}`} src={catAsset} alt={`${game.petNames[id]}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${facingLeft ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />}
-              <b>{headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : game.petNames[id]}</b>
+                : <img className={`cat-base cat-pose-${activePose}`} src={feeding.phase === "WAKING" ? feeding.elapsed < 280 ? pet.sleep : feeding.elapsed < 560 ? pet.wake : pet.wakeYawnFrames[Math.min(3, Math.floor((feeding.elapsed - 560) / 210))] : feedingBusy ? pet.idle : catAsset} alt={`${game.petNames[id]}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${facingLeft ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />}
+              <b>{feedingBusy ? feeding.phase === "WAKING" ? "起床吃饭…" : feeding.phase === "WALK_TO_BOWL" ? "去吃饭…" : feeding.phase === "FINISH_EATING" ? "吃饱啦" : "吃饭中…" : headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : game.petNames[id]}</b>
             </div>;
           })}
 
@@ -2380,6 +2581,7 @@ export default function Home() {
           origin={photoBoardOrigin}
           photos={photoBoardPhotos}
           uploadingId={uploadingPhotoId}
+          uploadingBusy={photoUploadBusy}
           deletingId={deletingPhotoId}
           photoUrl={photoBoardUrl}
           onClose={() => setPhotoBoardOpen(false)}
@@ -2462,7 +2664,7 @@ export default function Home() {
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span className="dock-icon dock-bag-icon" aria-hidden="true"><span className="bag-body"><span className="bag-inner" /><span className="bag-opening" /><span className="bag-top bag-top-left" /><span className="bag-top bag-top-right" /><span className="zipper-track zipper-track-left" /><span className="zipper-track zipper-track-right" /><span className="bag-pocket" /><span className="bag-content">🍓</span><span className="bag-zipper" /></span></span><b>背包</b><i>{totalBackpackItems}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span className="dock-icon dock-shop-icon" aria-hidden="true"><span className="dock-icon-glyph">🛒</span><span className="dock-cart-item">🍓</span><span className="cart-wheel cart-wheel-left" /><span className="cart-wheel cart-wheel-right" /></span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span className="dock-icon dock-pets-icon" aria-hidden="true"><span className="dock-paw dock-paw-one" /><span className="dock-paw dock-paw-two" /></span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon dock-decorate-icon" aria-hidden="true"><span className="dock-icon-glyph">🪑</span><span className="dock-move-hint" /></span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
+          <button className={decorating ? "active" : ""} disabled={game.scene === "yard" || feedingBusy} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon dock-decorate-icon" aria-hidden="true"><span className="dock-icon-glyph">🪑</span><span className="dock-move-hint" /></span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 
         {overlay && (
@@ -2547,7 +2749,8 @@ export default function Home() {
                     <fieldset className="journal-options"><legend>记录分类</legend><div className="category-options">{journalCategories.map((item) => <button key={item.name} className={category === item.name ? "selected" : ""} type="button" onClick={() => setCategory(item.name)}><span>{item.icon}</span>{item.name}</button>)}</div></fieldset>
                     <label className="rating-field">今天给自己打几分？<span><input type="range" min="1" max="10" value={rating} onChange={(event) => setRating(Number(event.target.value))} /><b>{rating} 分</b></span></label>
                     <div className="reward-line"><span>{nextJournalReward ? `今日第 ${todayRecordCount + 1} 条记录奖励` : "今日三次记录奖励已全部领取"}</span><b>🍓 +{nextJournalReward}</b></div>
-                    <button className="primary-button" type="submit" disabled={!ready || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : "保存今日记录"}</button>
+                    {historyError && <button type="button" onClick={() => { setHistoryError(false); setHistoryRetry((attempt) => attempt + 1); }}>重试载入历史记录</button>}
+                    <button className="primary-button" type="submit" disabled={!ready || !historyReady || !noteText.trim() || savingCheckin}>{savingCheckin ? "正在保存……" : !historyReady ? "正在载入记录……" : "保存今日记录"}</button>
                   </form>
                   <div className="streak-card">
                     <div><span><small>连续记录</small><b>{game.streak} 天</b></span><em>下一份奖励</em></div>
@@ -2555,7 +2758,7 @@ export default function Home() {
                     <p>{nextMilestone ? <>再坚持 <b>{nextMilestone - game.streak} 天</b>，达成连续 {nextMilestone} 天记录</> : "30 天里程碑已达成！"}</p>
                   </div>
                   <button className="history-link" type="button" onClick={() => { setHistoryPage(0); setOverlay("history"); }}>
-                    <span>JOURNAL HISTORY</span><b>{history.length} 篇　→</b>
+                    <span>JOURNAL HISTORY</span><b>{historyMeta?.total ?? history.length} 篇　→</b>
                   </button>
                 </>
               )}
@@ -2584,7 +2787,7 @@ export default function Home() {
                       <nav className="notebook-pagination" aria-label="手账翻页">
                         <button type="button" onClick={() => setHistoryPage((page) => Math.max(0, page - 1))} disabled={historyPage === 0}>← 上一页</button>
                         <span>第 {historyPage + 1} / {historyPageCount} 页</span>
-                        <button type="button" onClick={() => setHistoryPage((page) => Math.min(historyPageCount - 1, page + 1))} disabled={historyPage === historyPageCount - 1}>下一页 →</button>
+                        <button type="button" onClick={() => void nextHistoryPage()} disabled={historyPage === historyPageCount - 1 || historyLoading}>{historyLoading ? "正在载入……" : "下一页 →"}</button>
                       </nav>
                     </>
                   ) : <div className="notebook-empty">保存第一篇今日记录后，日记会从这里开始。</div>}
@@ -2791,8 +2994,8 @@ export default function Home() {
                     <div className="feed-card">
                       <img src={selectedFoodItem.asset} alt={selectedFoodItem.name} />
                       <small>已选择</small><h2>{selectedFoodItem.name}</h2><p>{selectedFoodItem.detail} · 活力 +{selectedFoodItem.energy}</p>
-                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={!game.inventory[selectedFoodItem.id] || inspectedPetStats.energy >= 100}>
-                        {inspectedPetStats.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${inspectedPet.name}` : "背包里没有了"}
+                      <button className="primary-button" onClick={() => feedPet(selectedFoodItem.id)} disabled={feedingBusy || game.scene !== "room" || !game.inventory[selectedFoodItem.id] || inspectedPetStats.energy >= 100}>
+                        {feedingBusy ? "猫咪正在用餐" : game.scene !== "room" ? "回到小屋投喂" : inspectedPetStats.energy >= 100 ? "活力已经满啦" : game.inventory[selectedFoodItem.id] ? `喂给 ${inspectedPet.name}` : "背包里没有了"}
                       </button>
                       {!totalFood && <button className="text-button" onClick={() => { setShopCategory("food"); setOverlay("shop"); }}>去商店买食物 →</button>}
                     </div>
