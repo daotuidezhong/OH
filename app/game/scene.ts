@@ -53,12 +53,23 @@ function inside(point: Point, rect: Rect) {
 }
 
 function segmentHitsRect(a: Point, b: Point, rect: Rect) {
-  const steps = Math.max(2, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y)));
-  for (let step = 0; step <= steps; step += 1) {
-    const t = step / steps;
-    if (inside({ x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t }, rect)) return true;
+  let enter = 0;
+  let exit = 1;
+  for (const [origin, delta, lower, upper] of [
+    [a.x, b.x - a.x, rect.left, rect.right],
+    [a.y, b.y - a.y, rect.top, rect.bottom],
+  ]) {
+    if (delta === 0) {
+      if (origin <= lower || origin >= upper) return false;
+      continue;
+    }
+    const first = (lower - origin) / delta;
+    const last = (upper - origin) / delta;
+    enter = Math.max(enter, Math.min(first, last));
+    exit = Math.min(exit, Math.max(first, last));
+    if (enter >= exit) return false;
   }
-  return false;
+  return true;
 }
 
 export function clampToScene(point: Point, scene: SceneId, obstacles: Rect[] = []) {
@@ -76,22 +87,55 @@ export function clampToScene(point: Point, scene: SceneId, obstacles: Rect[] = [
       { point: { x: next.x, y: rect.bottom + 1 }, distance: rect.bottom - next.y },
     ].filter(({ point }) => point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom)
       .sort((a, b) => a.distance - b.distance);
-    next = choices[0].point;
+    next = choices[0]?.point ?? next;
   }
   return next;
 }
 
 export function getWalkPath(from: Point, target: Point, scene: SceneId, obstacles: Rect[] = []) {
   const safeTarget = clampToScene(target, scene, obstacles);
-  if (!obstacles.some((rect) => segmentHitsRect(from, safeTarget, rect))) return [safeTarget];
+  if (obstacles.some((rect) => inside(safeTarget, rect))) return [];
+  // Legacy saved positions or a cat leaving its bed may start inside a footprint.
+  // Allow an outward first segment, but keep the obstacle closed on all later segments.
+  const hits = (a: Point, b: Point) => obstacles.some((rect) => !(a === from && inside(from, rect)) && segmentHitsRect(a, b, rect));
+  if (!hits(from, safeTarget)) return [safeTarget];
   const candidates = obstacles.flatMap((rect) => [
     { x: rect.left - 1.5, y: rect.top - 1.5 },
     { x: rect.right + 1.5, y: rect.top - 1.5 },
     { x: rect.left - 1.5, y: rect.bottom + 1.5 },
     { x: rect.right + 1.5, y: rect.bottom + 1.5 },
-  ]).map((point) => clampToScene(point, scene, obstacles));
-  const waypoint = candidates
-    .filter((point) => !obstacles.some((rect) => segmentHitsRect(from, point, rect) || segmentHitsRect(point, safeTarget, rect)))
-    .sort((a, b) => Math.hypot(a.x - from.x, a.y - from.y) + Math.hypot(safeTarget.x - a.x, safeTarget.y - a.y) - Math.hypot(b.x - from.x, b.y - from.y) - Math.hypot(safeTarget.x - b.x, safeTarget.y - b.y))[0];
-  return waypoint ? [waypoint, safeTarget] : [safeTarget];
+    { x: rect.left, y: rect.top },
+    { x: rect.right, y: rect.top },
+    { x: rect.left, y: rect.bottom },
+    { x: rect.right, y: rect.bottom },
+  ]).map((point) => clampToScene(point, scene, obstacles))
+    .filter((point) => !obstacles.some((rect) => inside(point, rect)));
+  const points = [from, safeTarget, ...candidates];
+  const distances = points.map(() => Infinity);
+  const previous = points.map(() => -1);
+  const visited = new Set<number>();
+  distances[0] = 0;
+
+  while (visited.size < points.length) {
+    let nearest = -1;
+    for (let index = 0; index < points.length; index += 1) {
+      if (!visited.has(index) && (nearest === -1 || distances[index] < distances[nearest])) nearest = index;
+    }
+    if (nearest === -1 || distances[nearest] === Infinity) break;
+    if (nearest === 1) {
+      const path: Point[] = [];
+      for (let index = 1; index !== 0; index = previous[index]) path.unshift(points[index]);
+      return path;
+    }
+    visited.add(nearest);
+    for (let index = 0; index < points.length; index += 1) {
+      if (visited.has(index) || hits(points[nearest], points[index])) continue;
+      const distance = distances[nearest] + Math.hypot(points[index].x - points[nearest].x, points[index].y - points[nearest].y);
+      if (distance < distances[index]) {
+        distances[index] = distance;
+        previous[index] = nearest;
+      }
+    }
+  }
+  return [];
 }

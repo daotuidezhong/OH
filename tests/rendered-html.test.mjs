@@ -377,7 +377,7 @@ test("ships transparent eight-direction sprite sheets for every cat", async () =
   }
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(source, /const stepDirection = getWalkDirection\(from, point\)[\s\S]*setDirection\(stepDirection\)[\s\S]*from = point/);
+  assert.match(source, /const stepDirection = getWalkDirection\(from, destination\)[\s\S]*setDirection\(stepDirection\)[\s\S]*from = point/);
   assert.match(source, /WALK_DIRECTION_ROW\[direction\]/);
   assert.match(css, /\.cat-walk-sprite \{[^}]*background-size: 400% 800%/);
 });
@@ -662,8 +662,8 @@ test("other controls do not open the sleep interruption confirmation", async () 
   const furnitureStart = source.indexOf("function moveCatToFurniture(");
   const furnitureEnd = source.indexOf("\n  async function checkIn", furnitureStart);
   const furnitureBody = source.slice(furnitureStart, furnitureEnd);
-  assert.match(feedBody, /inspectedPetId === current\.pet[\s\S]*petStats:[\s\S]*\[inspectedPetId\]/);
-  assert.doesNotMatch(feedBody, /setInterruptConfirm|requestSleepInterrupt/);
+  assert.match(feedBody, /beginFeeding[\s\S]*petId: inspectedPetId[\s\S]*switchControlledPet\(inspectedPetId\)/);
+  assert.doesNotMatch(feedBody, /setInterruptConfirm\(true\)|requestSleepInterrupt/);
   assert.doesNotMatch(changeSceneBody, /setInterruptConfirm|requestSleepInterrupt/);
   assert.doesNotMatch(furnitureBody, /setInterruptConfirm|requestSleepInterrupt/);
   assert.match(changeSceneBody, /if \(resting\) \{[\s\S]*setToast[\s\S]*return/);
@@ -689,8 +689,8 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
   assert.match(source, /image\.decode\(\)\.catch/);
   assert.match(source, /const activePose: CatPose = resting \|\| lounging \? "sleep"/);
   assert.match(source, /const catAsset = scratching \? pet\.scratchFrames/);
-  assert.match(source, /setWalkDuration\(WALK_CYCLE_MS\)/);
-  assert.match(source, /Math\.hypot\(point\.x - from\.x, point\.y - from\.y\) \* 14/);
+  assert.match(source, /setWalkDuration\(0\)[\s\S]*requestAnimationFrame\(animate\)/);
+  assert.match(source, /Math\.hypot\(destination\.x - from\.x, destination\.y - from\.y\) \* 14/);
   assert.match(source, /const STATUS_IDLE_MS = 8000/);
   assert.match(source, /className=\{`cat-base cat-pose-\$\{activePose\}`\}[\s\S]*decoding="sync"/);
   assert.match(source, /const \[statusIdle, setStatusIdle\] = useState\(true\)/);
@@ -723,8 +723,6 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(source, /TODAY&apos;S NOTE[\s\S]*今天发生了什么[\s\S]*JOURNAL HISTORY[\s\S]*往日日记/);
   assert.match(source, /maxLength=\{300\}/);
   assert.match(source, /const todayRecordCount = history\.filter\(\(record\) => record\.date === today\)\.length/);
-  assert.match(source, /let reward = getJournalReward\(todayRecordCount \+ 1\)/);
-  assert.match(source, /berries: current\.berries \+ reward, streak: firstRecordToday \? next : current\.streak/);
   assert.match(api, /countCheckinsForDate[\s\S]*getJournalReward\(\(await countCheckinsForDate\(deviceId, date\)\) \+ 1\)/);
   assert.match(api, /journalPhotoExists[\s\S]*照片不存在，请重新选择/);
   assert.doesNotMatch(source, /calorie|卡路里|千卡|智能估算/i);
@@ -743,9 +741,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory, photoBoardDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.10"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.11"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.11"[\s\S]*三只猫保持原始体型[\s\S]*version: "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
@@ -937,7 +935,7 @@ test("stores sleep independently, reserves beds, and animates every adopted pet"
   const switchBody = source.slice(switchStart, switchEnd);
   assert.doesNotMatch(switchBody, /if \(resting\)/);
   assert.match(switchBody, /setInspectedPetId\(id\)[\s\S]*setOverlay\(null\)/);
-  assert.match(switchBody, /const targetSleep = game\.petSleep\[id\][\s\S]*sleepEndsAt: currentTargetSleep\.endsAt[\s\S]*sleepRest: currentTargetSleep\.rest/);
+  assert.match(switchBody, /const targetSleep = game\.petSleep\[id\][\s\S]*sleepEndsAt: settled\.sleepEndsAt[\s\S]*sleepRest: settled\.sleepRest/);
   assert.match(switchBody, /catFurniture: getSleepRemainingMs\(currentTargetSleep\.endsAt, now\) > 0 \? currentTargetSleep\.furnitureId : null/);
   assert.match(source, /const roommateSleep = game\.petSleep\[id\][\s\S]*const roommateStatus = getCatStatus[\s\S]*getLoopedStatusFrame\(CAT_STATUS_ANIMATIONS\[roommateStatus\]\.frames[\s\S]*const roommateAsset/);
   assert.match(source, /roommateFrame\.pose === "walk"[\s\S]*cat\.walkFrames[\s\S]*roommateFrame\.pose === "groom"[\s\S]*cat\.groomFrames/);

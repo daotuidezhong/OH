@@ -6,6 +6,7 @@
 
 - 项目架构与待修改清单：[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - 设计验收记录：[`docs/design-qa.md`](docs/design-qa.md)
+- 下一更新检查：[`docs/next-update-review-20261014.md`](docs/next-update-review-20261014.md)
 - 网页主界面：[`app/page.tsx`](app/page.tsx)
 - Windows / macOS 桌面入口：[`desktop/main.tsx`](desktop/main.tsx)
 
@@ -24,11 +25,11 @@ npm test
 npm run desktop:build
 ```
 
-安装包输出到 `outputs/Berry-Workout-Island-Setup-0.9.7.exe`。桌面版在本机保存游戏进度、日记历史、日记照片、自评分、橙子专注钟记忆和猫咪名字，并支持检查 GitHub Releases 更新。日记照片会导入应用内部，最长边等比例缩至 1600 像素，不裁切、不拉伸。
+安装包输出到 `outputs/Berry-Workout-Island-Setup-<version>.exe`。桌面版在本机保存游戏进度、日记历史、日记照片、自评分、橙子专注钟记忆和猫咪名字，并支持检查 GitHub Releases 更新。日记照片会导入应用内部，最长边等比例缩至 1600 像素，不裁切、不拉伸。
 
 ## macOS 安装版
 
-macOS 安装包必须在 Mac 上构建。在 GitHub Actions 中手动运行 `Build macOS installers`，会分别生成 Apple 芯片的 `OH-0.9.7-arm64.dmg` 和 Intel Mac 的 `OH-0.9.7-x64.dmg`。未签名安装包首次打开时需在 macOS“隐私与安全性”中确认允许。
+macOS 安装包必须在 Mac 上构建。在 GitHub Actions 中手动运行 `Build macOS installers`，会分别生成 Apple 芯片的 `OH-<version>-arm64.dmg` 和 Intel Mac 的 `OH-<version>-x64.dmg`。未签名安装包首次打开时需在 macOS“隐私与安全性”中确认允许。
 
 ```bash
 npm run desktop:build:mac -- --arm64 --publish never

@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.9.10",
+  "version": "0.9.11",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
@@ -9,7 +9,9 @@
     "dev": "vinext dev",
     "build": "vinext build",
     "start": "vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.worker.json",
+    "types:worker": "wrangler types worker-configuration.d.ts --config dist/server/wrangler.json",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "desktop:build": "npm run desktop:build:win",

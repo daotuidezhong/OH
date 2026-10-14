@@ -9,10 +9,13 @@ function json(body: unknown, status = 200) {
 }
 
 export async function GET(request: Request) {
-  const deviceId = new URL(request.url).searchParams.get("device") ?? "";
+  const params = new URL(request.url).searchParams;
+  const deviceId = params.get("device") ?? "";
+  const beforeDate = params.get("before");
   if (!devicePattern.test(deviceId)) return json({ error: "无效设备" }, 400);
+  if (beforeDate !== null && (!datePattern.test(beforeDate) || Number.isNaN(Date.parse(`${beforeDate}T00:00:00`)))) return json({ error: "无效日期" }, 400);
   const { listCheckins } = await import("@/db/checkins");
-  return json({ records: await listCheckins(deviceId) });
+  return json(await listCheckins(deviceId, beforeDate));
 }
 
 export async function POST(request: Request) {

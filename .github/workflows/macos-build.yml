@@ -6,6 +6,12 @@ on:
     branches: [codex/macos-data-migration, codex/orange-focus-update, codex/next-update-v0.9.9]
 
 jobs:
+  validate-release:
+    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Publish v')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/validate.yml
+
   build-macos:
     runs-on: macos-15
     strategy:
@@ -48,7 +54,7 @@ jobs:
 
   publish-release:
     if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Publish v')
-    needs: [build-macos, build-windows]
+    needs: [validate-release, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,5 +69,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(node -p "require('./package.json').version")
-          gh release view "v${version}" >/dev/null 2>&1 || gh release create "v${version}" --target "$GITHUB_SHA" --title "OH v${version}" --latest --notes $'修复桌面版照片板上传后显示破图、无法查看照片的问题。\n\n此前已经上传并保存在本地的照片文件不会丢失，更新后会自动恢复正常显示。\n\n安装说明：Windows 使用 Setup EXE；Apple 芯片 Mac 使用 arm64 DMG；Intel Mac 使用 x64 DMG。当前安装包未进行商业代码签名或 Apple 公证，首次运行可能需要在系统安全设置中确认。'
+          node build/verify-release.mjs release-assets
+          if gh release view "v${version}" --json isDraft,targetCommitish > release-state.json; then
+            node --input-type=module -e 'import fs from "node:fs"; const release = JSON.parse(fs.readFileSync("release-state.json", "utf8")); if (!release.isDraft || release.targetCommitish !== process.env.GITHUB_SHA) throw new Error("Refusing to overwrite an existing release or another commit");'
+          else
+            gh release create "v${version}" --draft --target "$GITHUB_SHA" --title "OH v${version}" --notes-file "docs/releases/v${version}.md"
+          fi
           gh release upload "v${version}" release-assets/* --clobber
+          gh release edit "v${version}" --draft=false --latest --notes-file "docs/releases/v${version}.md"

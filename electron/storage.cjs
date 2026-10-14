@@ -3,6 +3,7 @@ const path = require("node:path");
 
 const BACKUP_FORMAT = "oh-user-data";
 const BACKUP_VERSION = 3;
+const INITIALIZED_KEY = "berry-desktop-storage-initialized";
 const JOURNAL_PHOTO_PATTERN = /^journal-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i;
 const PHOTO_BOARD_PATTERN = /^board-[0-9a-f-]{36}\.jpg$/i;
 
@@ -122,6 +123,20 @@ function createStorage(dataFile, options = {}) {
   };
 
   return {
+    snapshot() {
+      return Object.fromEntries(Object.entries(read()).filter(([key, value]) => key.startsWith("berry-") && typeof value === "string"));
+    },
+    initialize(legacyData = {}) {
+      const current = read();
+      if (current[INITIALIZED_KEY] !== "1") {
+        const legacyEntries = legacyData && typeof legacyData === "object" && !Array.isArray(legacyData)
+          ? Object.entries(legacyData).filter(([key, value]) => key.startsWith("berry-") && typeof value === "string" && !Object.hasOwn(current, key))
+          : [];
+        if (readJson(dataFile)) fs.copyFileSync(dataFile, backupFile);
+        write({ ...current, ...Object.fromEntries(legacyEntries), [INITIALIZED_KEY]: "1" });
+      }
+      return this.snapshot();
+    },
     load(key) {
       return read()[key] ?? null;
     },
@@ -146,6 +161,7 @@ function createStorage(dataFile, options = {}) {
         throw new Error("这不是可识别的 OH 备份文件");
       }
       const data = validateStoredData(payload.data);
+      data[INITIALIZED_KEY] = "1";
       const journalPhotos = validateJournalPhotos(payload.assets?.journalPhotos);
       const photoBoardPhotos = validatePhotoBoardFiles(payload.assets?.photoBoardPhotos);
       validatePhotoReferences(data, journalPhotos);
@@ -187,7 +203,7 @@ function createStorage(dataFile, options = {}) {
         }
         throw error;
       }
-      return Object.keys(data);
+      return Object.keys(data).filter((key) => key !== INITIALIZED_KEY);
     },
   };
 }
