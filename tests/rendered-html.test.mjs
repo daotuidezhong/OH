@@ -741,9 +741,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory, photoBoardDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.10"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.11"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.11"[\s\S]*三只猫保持原始体型[\s\S]*version: "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);

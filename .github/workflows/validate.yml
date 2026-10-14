@@ -1,6 +1,7 @@
 name: Validate next update
 
 on:
+  workflow_call:
   pull_request:
   push:
     branches: [codex/cat-room-feeding-next-update]
