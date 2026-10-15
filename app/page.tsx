@@ -20,7 +20,7 @@ import { getJournalReward } from "./game/journal-reward";
 import { getJournalStreak, localDate } from "./game/journal";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
 import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
-import { advanceFeeding, beginFeeding, EMPTY_FEEDING, findBowlPlacement } from "./game/feeding";
+import { advanceFeeding, beginFeeding, DEFAULT_BOWL_POSITION, EMPTY_FEEDING, findBowlPlacement, normalizeBowlPosition } from "./game/feeding";
 import { EatingSprite, FoodBowl } from "./game/FeedingSprites";
 import { getFeedingDockOffset } from "./game/feeding-pose";
 import { furnitureCollision, useRoomDepth } from "./game/room-depth";
@@ -114,6 +114,7 @@ type GameState = {
   sleepEndsAt: number | null;
   sleepRest: number;
   furniturePositions: Record<string, Point>;
+  bowlPosition: Point;
   scene: SceneId;
   farmPlots: CropPlotState[];
   seeds: SeedInventory;
@@ -363,6 +364,7 @@ const INITIAL_GAME: GameState = {
   sleepEndsAt: null,
   sleepRest: 0,
   furniturePositions: DEFAULT_FURNITURE_POSITIONS,
+  bowlPosition: DEFAULT_BOWL_POSITION,
   scene: "room",
   farmPlots: EMPTY_FARM,
   seeds: INITIAL_SEEDS,
@@ -504,7 +506,9 @@ export default function Home() {
   const [feeding, setFeeding] = useState(EMPTY_FEEDING);
   const feedingRef = useRef(EMPTY_FEEDING);
   const feedingBusy = feeding.phase !== "IDLE";
-  const [bowlPosition, setBowlPosition] = useState<Point>({ x: 64, y: 85 });
+  const [bowlDraft, setBowlDraft] = useState<{ position: Point; valid: boolean } | null>(null);
+  const bowlDragRef = useRef<{ pointerId: number; offset: Point; position: Point } | null>(null);
+  const bowlPosition = bowlDraft?.position ?? game.bowlPosition;
   const [jumping, setJumping] = useState(false);
   const [walkFrame, setWalkFrame] = useState(0);
   const [walkDuration, setWalkDuration] = useState(0);
@@ -651,6 +655,7 @@ export default function Home() {
             }];
           })) as Record<PetId, PetSleep>,
           furniturePositions,
+          bowlPosition: normalizeBowlPosition(parsed.bowlPosition),
           scene,
           farmPlots: Array.from({ length: 12 }, (_, index) => parsed.farmPlots?.[index] ?? null),
           seeds: { ...INITIAL_SEEDS, ...(parsed.seeds ?? {}) },
@@ -1241,9 +1246,21 @@ export default function Home() {
 
   useEffect(() => {
     if (!dragging) return;
+    const cancelDragging = () => { bowlDragRef.current = null; setBowlDraft(null); setDragging(null); };
+    if (!decorating) { cancelDragging(); return; }
     const moveFurniture = (event: PointerEvent) => {
+      if (feedingRef.current.phase !== "IDLE") { cancelDragging(); return; }
       const rect = roomRef.current?.getBoundingClientRect();
       if (!rect) return;
+      if (dragging === "foodBowl") {
+        const gesture = bowlDragRef.current;
+        if (!gesture || event.pointerId !== gesture.pointerId) return;
+        const position = { x: (event.clientX - rect.left) / rect.width * 100 - gesture.offset.x,
+          y: (event.clientY - rect.top) / rect.height * 100 - gesture.offset.y };
+        gesture.position = position;
+        setBowlDraft({ position, valid: !!getBowlPlacement(game.pet, position, true) });
+        return;
+      }
       const point = clampFurniturePosition({
         x: ((event.clientX - rect.left) / rect.width) * 100,
         y: ((event.clientY - rect.top) / rect.height) * 100,
@@ -1253,16 +1270,33 @@ export default function Home() {
         furniturePositions: { ...current.furniturePositions, [dragging]: point },
       }));
     };
-    const stopDragging = () => setDragging(null);
+    const stopDragging = (event: PointerEvent) => {
+      if (dragging === "foodBowl") {
+        const gesture = bowlDragRef.current;
+        if (!gesture || event.pointerId !== gesture.pointerId) return;
+        const placement = feedingRef.current.phase === "IDLE" && getBowlPlacement(game.pet, gesture.position, true);
+        if (placement) setGame((current) => ({ ...current, bowlPosition: placement.bowl }));
+        else setToast("这里放不下食物碗，请留出猫咪能走到的空地");
+      }
+      cancelDragging();
+    };
+    const cancelPointer = (event: PointerEvent) => { if (!bowlDragRef.current || event.pointerId === bowlDragRef.current.pointerId) cancelDragging(); };
+    const cancelKey = (event: KeyboardEvent) => { if (event.key === "Escape") cancelDragging(); };
     window.addEventListener("pointermove", moveFurniture);
-    window.addEventListener("pointerup", stopDragging, { once: true });
-    window.addEventListener("pointercancel", stopDragging, { once: true });
+    window.addEventListener("pointerup", stopDragging);
+    window.addEventListener("pointercancel", cancelPointer);
+    window.addEventListener("blur", cancelDragging);
+    window.addEventListener("resize", cancelDragging);
+    window.addEventListener("keydown", cancelKey);
     return () => {
       window.removeEventListener("pointermove", moveFurniture);
       window.removeEventListener("pointerup", stopDragging);
-      window.removeEventListener("pointercancel", stopDragging);
+      window.removeEventListener("pointercancel", cancelPointer);
+      window.removeEventListener("blur", cancelDragging);
+      window.removeEventListener("resize", cancelDragging);
+      window.removeEventListener("keydown", cancelKey);
     };
-  }, [dragging]);
+  }, [dragging, decorating]);
 
   useEffect(() => () => {
     window.clearTimeout(walkingTimer.current);
@@ -1350,15 +1384,16 @@ export default function Home() {
   const motionY = feedingBusy || walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
 
   useEffect(() => {
-    if (!ready || game.scene !== "room" || feedingBusy) return;
+    if (!ready || game.scene !== "room" || feedingBusy || dragging) return;
     const update = () => {
       const placement = getBowlPlacement();
-      if (placement) setBowlPosition((current) => current.x === placement.bowl.x && current.y === placement.bowl.y ? current : placement.bowl);
+      if (placement) setGame((current) => current.bowlPosition.x === placement.bowl.x && current.bowlPosition.y === placement.bowl.y
+        ? current : { ...current, bowlPosition: placement.bowl });
     };
     update();
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
-  }, [ready, game.scene, game.furniturePositions, game.purchased, feedingBusy]);
+  }, [ready, game.scene, game.furniturePositions, game.purchased, game.bowlPosition, feedingBusy, decorating, dragging]);
 
   useEffect(() => {
     if (!feedingBusy) return;
@@ -1853,10 +1888,11 @@ export default function Home() {
     return { x: (bounds.left + bounds.width / 2 - room.left) / room.width * 100, y: (bounds.top + bounds.height * .79 - room.top) / room.height * 100 };
   }
 
-  function getBowlPlacement(petId = game.pet) {
+  function getBowlPlacement(petId = game.pet, preferred = game.bowlPosition, strict = false) {
     const room = roomRef.current?.getBoundingClientRect();
     const cat = roomRef.current?.querySelector<HTMLElement>(".walking-cat")?.getBoundingClientRect();
-    const bowl = roomRef.current?.querySelector<HTMLElement>(".food-bowl")?.getBoundingClientRect();
+    const bowlElement = roomRef.current?.querySelector<HTMLElement>(".food-bowl");
+    const bowl = bowlElement?.getBoundingClientRect();
     const mouthOffset = getFeedingDockOffset(petId, cat?.width ?? 100, bowl?.width ?? 64);
     const offset = room?.width ? { x: mouthOffset.x / room.width * 100, y: mouthOffset.y / room.height * 100 } : { x: 4, y: 4 };
     const hudObstacles: Rect[] = room?.width ? Array.from(document.querySelectorAll<HTMLElement>(".pet-status, .game-dock")).map((node) => {
@@ -1865,7 +1901,40 @@ export default function Home() {
         top: (bounds.top - room.top) / room.height * 100, bottom: (bounds.bottom - room.top) / room.height * 100 };
     }) : [];
     const clearance = room?.width && bowl ? { x: bowl.width * .43 / room.width * 100, y: bowl.width * .26 / room.height * 100 } : undefined;
-    return findBowlPlacement([...getSceneObstacles(undefined, true, false), ...hudObstacles], offset, clearance);
+    const collision = room?.width && bowl && bowlElement ? furnitureCollision(bowl, room, cat?.width ?? 100) : null;
+    const anchor = { x: Number.parseFloat(bowlElement?.style.left ?? "0"), y: Number.parseFloat(bowlElement?.style.top ?? "0") };
+    const footprint = collision ? { left: collision.left - anchor.x, right: collision.right - anchor.x,
+      top: collision.top - anchor.y, bottom: collision.bottom - anchor.y } : undefined;
+    const occupied = room?.width ? ownedFurniture.filter((item) => item.id !== "rug").flatMap((item) => {
+      const bounds = roomRef.current?.querySelector<HTMLElement>(`[data-furniture="${item.id}"]`)?.getBoundingClientRect();
+      return bounds ? [{ left: (bounds.left + bounds.width * .09 - room.left) / room.width * 100,
+        right: (bounds.right - bounds.width * .09 - room.left) / room.width * 100,
+        top: (bounds.top + bounds.height * .12 - room.top) / room.height * 100,
+        bottom: (bounds.top + bounds.height * .94 - room.top) / room.height * 100 }] : [];
+    }) : [];
+    const approaches = pets.map((item) => {
+      const mouth = getFeedingDockOffset(item.id, cat?.width ?? 100, bowl?.width ?? 64);
+      const host = game.petSleep[item.id].furnitureId ?? (item.id === game.pet ? game.catFurniture : undefined);
+      return { offset: room?.width ? { x: mouth.x / room.width * 100, y: mouth.y / room.height * 100 } : offset,
+        from: game.adoptedPets.includes(item.id) ? readCatPosition(item.id) : undefined,
+        obstacles: getSceneObstacles(host ?? undefined, true, false) };
+    });
+    return findBowlPlacement([...getSceneObstacles(undefined, true, false), ...hudObstacles], offset, clearance, { preferred, strict, approaches, footprint, occupied });
+  }
+
+  function startBowlDrag(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!decorating || dragging || feedingRef.current.phase !== "IDLE" || !event.isPrimary || event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const room = roomRef.current?.getBoundingClientRect();
+    if (!room?.width) return;
+    const position = { ...game.bowlPosition };
+    bowlDragRef.current = { pointerId: event.pointerId, position,
+      offset: { x: (event.clientX - room.left) / room.width * 100 - position.x,
+        y: (event.clientY - room.top) / room.height * 100 - position.y } };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setBowlDraft({ position, valid: true });
+    setDragging("foodBowl");
   }
 
   function playTrack(track: PlaylistTrack) {
@@ -2162,7 +2231,7 @@ export default function Home() {
       return;
     }
     const sleep = game.petSleep[inspectedPetId];
-    const placement = getBowlPlacement(inspectedPetId);
+    const placement = getBowlPlacement(inspectedPetId, game.bowlPosition, true);
     const from = readCatPosition(inspectedPetId);
     const session = placement && beginFeeding(feedingRef.current, {
       from, target: placement.target, obstacles: getSceneObstacles(sleep?.furnitureId ?? undefined),
@@ -2174,7 +2243,6 @@ export default function Home() {
     if (inspectedPetId !== game.pet) switchControlledPet(inspectedPetId);
     feedingRef.current = session;
     setFeeding(session);
-    setBowlPosition(placement!.bowl);
     window.clearTimeout(walkingTimer.current);
     window.cancelAnimationFrame(motionFrame.current);
     window.clearInterval(scratchTimer.current);
@@ -2297,7 +2365,10 @@ export default function Home() {
 
   function resetFurniture() {
     if (feedingRef.current.phase !== "IDLE") return;
-    setGame((current) => ({ ...current, furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS } }));
+    bowlDragRef.current = null;
+    setBowlDraft(null);
+    setDragging(null);
+    setGame((current) => ({ ...current, furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS }, bowlPosition: { ...DEFAULT_BOWL_POSITION } }));
     setToast("家具已经恢复到推荐位置");
   }
 
@@ -2523,8 +2594,10 @@ export default function Home() {
             );
           })}
 
-          {game.scene === "room" && <FoodBowl state={feeding.bowl} position={bowlPosition} disabled={feedingBusy || decorating}
-            onClick={() => { setInspectedPetId(game.pet); openOverlay("bag"); }} />}
+          {game.scene === "room" && <FoodBowl state={feeding.bowl} position={bowlPosition} disabled={feedingBusy}
+            decorating={decorating} dragging={dragging === "foodBowl"} invalid={bowlDraft?.valid === false} onPointerDown={startBowlDrag}
+            onLostPointerCapture={(event) => { if (bowlDragRef.current?.pointerId === event.pointerId) { bowlDragRef.current = null; setBowlDraft(null); setDragging(null); } }}
+            onClick={() => { if (decorating || bowlDragRef.current) return; setInspectedPetId(game.pet); openOverlay("bag"); }} />}
 
           {game.scene === "room" && game.adoptedPets.map((id) => {
             const controlled = id === game.pet;

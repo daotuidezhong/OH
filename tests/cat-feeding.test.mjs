@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { advanceFeeding, beginFeeding, EMPTY_FEEDING, FEEDING_DURATIONS, findBowlPlacement, getEatingFrame } from "../app/game/feeding.ts";
+import { advanceFeeding, beginFeeding, DEFAULT_BOWL_POSITION, EMPTY_FEEDING, FEEDING_DURATIONS, findBowlPlacement, getEatingFrame, normalizeBowlPosition } from "../app/game/feeding.ts";
 import { furnitureCollision } from "../app/game/room-depth.ts";
 import { getCatFeedingRig, getFeedingDockOffset, getFeedingPose } from "../app/game/feeding-pose.ts";
 
@@ -75,6 +75,61 @@ test("bowl placement avoids both furniture and blocked docking spaces", () => {
   const placement = findBowlPlacement([obstacle], { x: 4, y: 4 });
   assert.deepEqual(placement.bowl, { x: 51, y: 86 });
   assert.equal(findBowlPlacement([{ left: 0, right: 100, top: 0, bottom: 100 }], { x: 4, y: 4 }), null);
+});
+
+test("a saved bowl stays at its chosen position and old or malformed saves use the default", () => {
+  const preferred = { x: 43, y: 73 };
+  const restored = normalizeBowlPosition(JSON.parse(JSON.stringify(preferred)));
+  assert.deepEqual(findBowlPlacement([], { x: 6, y: 2 }, undefined, { preferred: restored }).bowl, preferred);
+  for (const value of [undefined, null, {}, { x: "43", y: 73 }, { x: NaN, y: 73 }, { x: Infinity, y: 73 }, { x: 101, y: 73 }]) {
+    assert.deepEqual(normalizeBowlPosition(value), DEFAULT_BOWL_POSITION);
+  }
+});
+
+test("an invalid bowl drop is rejected instead of silently selecting another location", () => {
+  const obstacle = { left: 40, right: 50, top: 60, bottom: 80 };
+  const offset = { x: 6, y: 2 };
+  for (const preferred of [{ x: 45, y: 70 }, { x: 8, y: 70 }, { x: 60, y: 90 }, { x: 60, y: 42 }]) {
+    assert.equal(findBowlPlacement([obstacle], offset, undefined, { preferred, strict: true }), null);
+    assert.ok(findBowlPlacement([obstacle], offset, undefined, { preferred }));
+  }
+});
+
+test("a moved bowl reserves separate reachable docks for all three original cats", () => {
+  const preferred = { x: 52, y: 76 };
+  const approaches = ["mitao", "doubao", "xueqiu"].map((id) => ({ offset: getFeedingDockOffset(id, 144, 84), from: { x: 20, y: 68 } }))
+    .map((approach) => ({ ...approach, offset: { x: approach.offset.x / 12, y: approach.offset.y / 9 } }));
+  for (const approach of approaches) {
+    const placement = findBowlPlacement([], approach.offset, undefined, { preferred, strict: true, approaches });
+    assert.deepEqual(placement.bowl, preferred);
+    let state = beginFeeding(EMPTY_FEEDING, { ...options, from: approach.from, target: placement.target });
+    assert.ok(state);
+    while (state.phase !== "LOWER_HEAD") state = advanceFeeding(state, 16);
+    assert.deepEqual(state.position, placement.target);
+    while (state.phase !== "IDLE") state = advanceFeeding(state, 16);
+    assert.equal(state.bowl, "empty");
+  }
+  const blockedDock = { left: 44, right: 48, top: 74, bottom: 78 };
+  assert.equal(findBowlPlacement([blockedDock], { x: 2, y: 0 }, undefined, { preferred, strict: true, approaches }), null);
+});
+
+test("an enclosed bowl and a bowl that leaves no room for the cat are rejected", () => {
+  const preferred = { x: 60, y: 75 };
+  const offset = { x: 6, y: 2 };
+  const approaches = [{ offset, from: { x: 30, y: 70 } }];
+  const wall = { left: 40, right: 50, top: 0, bottom: 100 };
+  assert.equal(findBowlPlacement([wall], offset, undefined, { preferred, strict: true, approaches }), null);
+  assert.ok(findBowlPlacement([], offset, undefined, { preferred, strict: true, approaches }));
+  assert.equal(findBowlPlacement([], offset, undefined, { preferred, strict: true, approaches,
+    footprint: { left: -8, right: 8, top: -5, bottom: 5 } }), null);
+});
+
+test("bowl placement respects furniture artwork while keeping cat paths on floor footprints", () => {
+  const occupied = [{ left: 40, right: 65, top: 50, bottom: 72 }];
+  const offset = { x: 6, y: 2 };
+  assert.equal(findBowlPlacement([], offset, undefined, { preferred: { x: 55, y: 66 }, strict: true, occupied }), null);
+  const preferred = { x: 55, y: 76 };
+  assert.deepEqual(findBowlPlacement([], offset, undefined, { preferred, strict: true, occupied }).bowl, preferred);
 });
 
 test("collision footprints use rendered floor contact and allow clearance for the cat body", () => {
