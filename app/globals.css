@@ -323,6 +323,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .food-bowl:disabled { opacity: 1; }
 .bowl-food { position: absolute; left: 22%; top: 44%; width: 56%; height: 20%; image-rendering: pixelated; filter: var(--scene-lighting); pointer-events: none; }
 .food-bowl:focus-visible { outline: 2px dashed #ffedbc; outline-offset: -5px; }
+.decorating .food-bowl { cursor: grab; touch-action: none; }
+.decorating .food-bowl::before { position: absolute; inset: -5px; content: ""; border: 3px dashed rgba(255, 233, 122, .95); border-radius: 13px; background: rgba(255, 244, 171, .18); }
+.food-bowl.dragging { z-index: 20000 !important; cursor: grabbing; }
+.food-bowl.invalid-placement::before { border-color: #d07869; background: rgba(196, 88, 74, .2); }
+.food-bowl .bowl-drag-label { position: absolute; left: 50%; bottom: -15px; padding: 4px 7px; transform: translateX(-50%); border: 2px solid #725447; border-radius: 8px; background: #fff7d8; font-size: 9px; white-space: nowrap; pointer-events: none; }
 .roommate-cat { text-align: center; }
 .roommate-cat b { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); white-space: nowrap; }
 .walking-cat.walking .cat-base { animation: cat-pose-walk-in .18s ease-out both; }

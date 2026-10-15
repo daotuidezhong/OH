@@ -1,5 +1,5 @@
 import type { Point } from "./furniture";
-import { getWalkPath, type Rect } from "./scene.ts";
+import { getWalkPath, SCENE_BOUNDS, type Rect } from "./scene.ts";
 
 export type FeedingPhase = "IDLE" | "WAKING" | "WALK_TO_BOWL" | "ALIGN_AT_BOWL" | "LOWER_HEAD" | "EATING" | "FINISH_EATING";
 export type BowlState = "empty" | "filled";
@@ -19,6 +19,17 @@ export const EMPTY_FEEDING: FeedingState = {
 };
 export const FEEDING_DURATIONS = { WAKING: 1400, ALIGN_AT_BOWL: 240, LOWER_HEAD: 600, EATING: 3600, FINISH_EATING: 700 };
 const WALK_SPEED = 18; // Room percentage points per second; independent of refresh rate.
+export const DEFAULT_BOWL_POSITION: Point = { x: 64, y: 85 };
+
+export function normalizeBowlPosition(value: unknown): Point {
+  const point = value as Partial<Point> | null;
+  return point && typeof point.x === "number" && Number.isFinite(point.x) && point.x >= 0 && point.x <= 100
+    && typeof point.y === "number" && Number.isFinite(point.y) && point.y >= 0 && point.y <= 100
+    ? { x: point.x, y: point.y } : { ...DEFAULT_BOWL_POSITION };
+}
+
+type BowlApproach = { offset: Point; from?: Point; obstacles?: Rect[] };
+type BowlPlacementOptions = { preferred?: Point; strict?: boolean; approaches?: BowlApproach[]; footprint?: Rect; occupied?: Rect[] };
 
 export function beginFeeding(current: FeedingState, options: {
   from: Point; target: Point; obstacles: Rect[]; sleeping: boolean; petId: string; foodId: string; energy: number;
@@ -71,16 +82,30 @@ export function getEatingFrame(state: Pick<FeedingState, "phase" | "elapsed">) {
   return 0;
 }
 
-export function findBowlPlacement(obstacles: Rect[], offset: Point, clearance: Point = { x: 2.5, y: 1.5 }) {
+export function findBowlPlacement(obstacles: Rect[], offset: Point, clearance: Point = { x: 2.5, y: 1.5 }, options: BowlPlacementOptions = {}) {
   // Keep the bowl off the main passage. Try other floor spaces if furniture was moved.
-  const candidates = [{ x: 64, y: 85 }, { x: 51, y: 86 }, { x: 36, y: 87 }, { x: 17, y: 85 }, { x: 63, y: 64 }, { x: 45, y: 60 }];
+  const candidates = [{ ...DEFAULT_BOWL_POSITION }, { x: 51, y: 86 }, { x: 36, y: 87 }, { x: 17, y: 85 }, { x: 63, y: 64 }, { x: 45, y: 60 }];
   for (let y = 82; y >= 55; y -= 4) for (let x = 65; x >= 15; x -= 5) candidates.push({ x, y });
-  for (const bowl of candidates) {
+  if (options.preferred) candidates.sort((a, b) => Math.hypot(a.x - options.preferred!.x, a.y - options.preferred!.y) - Math.hypot(b.x - options.preferred!.x, b.y - options.preferred!.y));
+  const positions = options.strict ? options.preferred ? [options.preferred] : [] : options.preferred ? [options.preferred, ...candidates] : candidates;
+  const bounds = SCENE_BOUNDS.room;
+  for (const bowl of positions) {
+    if (!Number.isFinite(bowl.x) || !Number.isFinite(bowl.y)
+      || bowl.x - clearance.x < bounds.left || bowl.x + clearance.x > bounds.right
+      || bowl.y - clearance.y < bounds.top || bowl.y + clearance.y > bounds.bottom) continue;
     const target = { x: bowl.x - offset.x, y: bowl.y - offset.y };
-    if (target.x < 7 || target.x > 93 || target.y < 43 || target.y > 88) continue;
-    const blocked = obstacles.some((rect) => bowl.x + clearance.x > rect.left && bowl.x - clearance.x < rect.right && bowl.y + clearance.y > rect.top && bowl.y - clearance.y < rect.bottom
-      || target.x > rect.left && target.x < rect.right && target.y > rect.top && target.y < rect.bottom);
-    if (!blocked) return { bowl, target };
+    if ([...obstacles, ...(options.occupied ?? [])].some((rect) => bowl.x + clearance.x > rect.left && bowl.x - clearance.x < rect.right && bowl.y + clearance.y > rect.top && bowl.y - clearance.y < rect.bottom)) continue;
+    const footprint = options.footprint;
+    const bowlObstacle = footprint ? [{ left: bowl.x + footprint.left, right: bowl.x + footprint.right, top: bowl.y + footprint.top, bottom: bowl.y + footprint.bottom }] : [];
+    const accessible = [{ offset }, ...(options.approaches ?? [])].every((approach) => {
+      const dock = { x: bowl.x - approach.offset.x, y: bowl.y - approach.offset.y };
+      if (dock.x < bounds.left || dock.x > bounds.right || dock.y < bounds.top || dock.y > bounds.bottom
+        || obstacles.some((rect) => dock.x > rect.left && dock.x < rect.right && dock.y > rect.top && dock.y < rect.bottom)) return false;
+      if (!approach.from) return true;
+      const end = getWalkPath(approach.from, dock, "room", [...(approach.obstacles ?? obstacles), ...bowlObstacle]).at(-1);
+      return !!end && Math.hypot(end.x - dock.x, end.y - dock.y) <= .05;
+    });
+    if (accessible) return { bowl: { ...bowl }, target };
   }
   return null;
 }

@@ -636,7 +636,11 @@ test("only movement intent asks to cancel sleep before the wake-up animation", a
   const keyboardBody = source.slice(keyboardStart, keyboardEnd);
   assert.match(moveBody, /if \(resting\) \{[\s\S]*requestSleepInterrupt\(\)[\s\S]*return/);
   assert.match(keyboardBody, /const move = moves\[event\.key\][\s\S]*if \(resting\) \{[\s\S]*requestSleepInterrupt\(\)[\s\S]*return/);
-  assert.doesNotMatch(source, /startCatDrag|trackCatDrag|stopCatDrag|setPointerCapture|releasePointerCapture/);
+  assert.doesNotMatch(source, /startCatDrag|trackCatDrag|stopCatDrag/);
+  const catMarkupStart = source.indexOf('className={`scene-cat walking-cat');
+  assert.ok(catMarkupStart > 0);
+  const catMarkup = source.slice(catMarkupStart, source.indexOf("</div>", catMarkupStart));
+  assert.doesNotMatch(catMarkup, /onPointerDown|onPointerMove|setPointerCapture|releasePointerCapture/);
   assert.match(source, /是否要取消睡眠？[\s\S]*>取消睡眠<\/button>/);
   assert.match(interruptBody, /petSleep: \{ \.\.\.current\.petSleep, \[current\.pet\]: \{ endsAt: null, rest: 0, furnitureId: null \} \}[\s\S]*sleepEndsAt: null[\s\S]*sleepRest: 0/);
   assert.doesNotMatch(interruptBody, /catFurniture: null/);
