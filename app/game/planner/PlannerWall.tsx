@@ -9,6 +9,7 @@ const ART_WIDTH = 96;
 const ART_HEIGHT = 58;
 const WALL_BARS_PER_SLOT = 2;
 const MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"];
+const WEEKDAYS = ["日", "一", "二", "三", "四", "五", "六"];
 
 // Colours sampled from the room art: the vinyl cabinet wood, the wall plaster and a muted brick red.
 const PALETTE = {
@@ -24,6 +25,10 @@ const ITEM_COLORS: Record<PlannerColor, [string, string]> = {
 };
 
 const GLYPHS: Record<string, string[]> = {
+  "一": ["00000", "00000", "11111", "00000", "00000"], "二": ["01110", "00000", "00000", "00000", "11111"],
+  "三": ["11111", "00000", "01110", "00000", "11111"], "四": ["11111", "10101", "10101", "11011", "11111"],
+  "五": ["11111", "00100", "01110", "00110", "11111"], "六": ["00100", "11111", "00000", "01010", "10001"],
+  "日": ["11111", "10001", "11111", "10001", "11111"],
   "0": ["111", "101", "101", "101", "111"], "1": ["010", "110", "010", "010", "111"], "2": ["111", "001", "111", "100", "111"],
   "3": ["111", "001", "111", "001", "111"], "4": ["101", "101", "111", "001", "001"], "5": ["111", "100", "111", "001", "111"],
   "6": ["111", "100", "111", "101", "111"], "7": ["111", "001", "001", "010", "010"], "8": ["111", "101", "111", "101", "111"],
@@ -121,7 +126,7 @@ function drawWeek(paint: Painter, dates: string[], today: string, items: Planner
       for (let step = 0; step < columnWidth; step += 2) { paint.rect(x + step, 20, 1, 1, PALETTE.todayEdge); paint.rect(x + step + 1, 52, 1, 1, PALETTE.todayEdge); }
       for (let step = 0; step < 33; step += 2) { paint.rect(x, 20 + step, 1, 1, PALETTE.todayEdge); paint.rect(x + columnWidth - 1, 21 + step, 1, 1, PALETTE.todayEdge); }
     }
-    const day = String(Number(date.slice(8, 10)));
+    const day = WEEKDAYS[weekday];
     paint.text(day, x + Math.round((columnWidth - textWidth(day)) / 2), 22, date === today ? PALETTE.weekend : weekday === 0 || weekday === 6 ? PALETTE.weekend : PALETTE.number);
     PLANNER_SLOTS.forEach((slot, slotIndex) => {
       const y = 29 + slotIndex * 8;
@@ -139,7 +144,7 @@ function drawWeek(paint: Painter, dates: string[], today: string, items: Planner
       }
     });
   });
-  // Dotted rules between the morning, afternoon and evening rows, and under the day numbers.
+  // Dotted rules between the morning, afternoon and evening rows, and under the weekdays.
   for (let x = left; x < left + columnWidth * 7; x += 2) {
     paint.rect(x, 28, 1, 1, PALETTE.paperLine);
     paint.rect(x + 1, 36, 1, 1, PALETTE.paperLine);
@@ -153,7 +158,7 @@ export default function PlannerWall({ open, planner, today, now, onOpen }: Props
   const items = dates.length ? visiblePlannerItems(planner, dates, now) : [];
   const week = today ? getTeachingWeek(today, planner.semesterStart) : null;
   const month = today ? MONTHS[Number(today.slice(5, 7)) - 1] : "";
-  const signature = `${month}|${week}|${today}|${items.map((item) => `${item.key}:${item.slot}:${item.color}`).join(",")}`;
+  const signature = `${month}|${week}|${today}|${dates.join(",")}|${items.map((item) => `${item.key}:${item.slot}:${item.color}`).join(",")}`;
 
   useEffect(() => {
     const context = canvasRef.current?.getContext("2d");

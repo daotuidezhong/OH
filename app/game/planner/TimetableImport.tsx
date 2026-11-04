@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { PlannerCourse, WeekParity } from "./planner";
-import { aiKey, prepareTimetableImage, recognizeTimetable, type TimetableImage } from "./timetable-ai";
+import { prepareTimetableImage, recognizeTimetable, type TimetableImage } from "./timetable-ai";
 import { isDuplicateCourse, rowsToCourses, toImportRows, validateImportRow, type ImportRow } from "./timetable-import";
 
 type Props = {
@@ -11,15 +11,13 @@ type Props = {
   onClose: () => void;
 };
 
-type Step = "loading" | "key" | "pick" | "busy" | "confirm";
+type Step = "pick" | "busy" | "confirm";
 
 const WEEKDAY_OPTIONS = [[1, "周一"], [2, "周二"], [3, "周三"], [4, "周四"], [5, "周五"], [6, "周六"], [0, "周日"]] as const;
 const PARITY_OPTIONS: [WeekParity, string][] = [["all", "每周"], ["odd", "单周"], ["even", "双周"]];
 
 export default function TimetableImport({ courses, hasSemester, onSetCurrentWeek, onImport, onClose }: Props) {
-  const [step, setStep] = useState<Step>("loading");
-  const [keyDraft, setKeyDraft] = useState("");
-  const [changingKey, setChangingKey] = useState(false);
+  const [step, setStep] = useState<Step>("pick");
   const [image, setImage] = useState<TimetableImage | null>(null);
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
@@ -28,13 +26,8 @@ export default function TimetableImport({ courses, hasSemester, onSetCurrentWeek
   const [dropping, setDropping] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const desktop = typeof window !== "undefined" && Boolean(window.gameUpdater?.aiKey);
 
-  useEffect(() => {
-    let alive = true;
-    void aiKey.has().then((has) => { if (alive) setStep(has ? "pick" : "key"); });
-    return () => { alive = false; abortRef.current?.abort(); };
-  }, []);
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   const choose = async (file: Blob | null | undefined) => {
     if (!file) return;
@@ -51,13 +44,6 @@ export default function TimetableImport({ courses, hasSemester, onSetCurrentWeek
     window.addEventListener("paste", paste);
     return () => window.removeEventListener("paste", paste);
   }, [step]);
-
-  const saveKey = async () => {
-    const key = keyDraft.trim();
-    if (!key.startsWith("sk-")) { setError("DeepSeek 的 API Key 一般以 sk- 开头，请检查一下"); return; }
-    try { await aiKey.set(key); } catch { setError("API Key 保存失败，请重试"); return; }
-    setKeyDraft(""); setChangingKey(false); setError(""); setStep("pick");
-  };
 
   const recognize = async () => {
     if (!image) return;
@@ -91,23 +77,10 @@ export default function TimetableImport({ courses, hasSemester, onSetCurrentWeek
 
   return <div className="planner-dialog-layer" onPointerDown={(event) => { event.stopPropagation(); if (step !== "busy") onClose(); }}>
     <section className={`planner-dialog timetable-import step-${step}`} role="dialog" aria-modal="true" aria-label="截图导入课表" onPointerDown={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape" && step !== "busy") { event.stopPropagation(); onClose(); } }}>
-      <header><b>📷 截图导入课表</b>{step === "pick" && !changingKey && <button type="button" className="timetable-link" onClick={() => { setChangingKey(true); setStep("key"); }}>更换 API Key</button>}</header>
-
-      {step === "loading" && <p className="planner-dialog-note">正在准备…</p>}
-
-      {step === "key" && <form className="timetable-key" onSubmit={(event) => { event.preventDefault(); void saveKey(); }}>
-        <p>识别课表会用你自己的 DeepSeek API Key（在 DeepSeek 开放平台创建）。Key 只保存在这台{desktop ? "电脑上，并用系统加密" : "浏览器里"}，不会进入游戏存档、备份或同步。识别一张课表一般只花几分钱。</p>
-        <label className="planner-field"><span>DeepSeek API Key</span><input type="password" autoComplete="off" spellCheck={false} value={keyDraft} placeholder="sk-…" onChange={(event) => { setKeyDraft(event.target.value); setError(""); }} autoFocus /></label>
-        {error && <p className="planner-dialog-error" role="alert">{error}</p>}
-        <footer>
-          {changingKey && <button type="button" className="danger" onClick={() => { void aiKey.clear().then(() => { setChangingKey(false); setKeyDraft(""); setStep("key"); }); }}>删除已保存的 Key</button>}
-          <span />
-          <button type="button" onClick={() => { if (changingKey) { setChangingKey(false); setError(""); setStep("pick"); } else onClose(); }}>取消</button>
-          <button type="submit" className="primary" disabled={!keyDraft.trim()}>保存并继续</button>
-        </footer>
-      </form>}
+      <header><b>📷 截图导入课表</b></header>
 
       {(step === "pick" || step === "busy") && <div className="timetable-pick">
+        <p className="planner-dialog-note">由 OH 提供课表识别，无需填写 Key。截图会发送至 DeepSeek，请在导入前核对识别结果。</p>
         <button type="button" className={`timetable-drop ${dropping ? "dropping" : ""} ${image ? "has-image" : ""}`} disabled={step === "busy"} onClick={() => fileRef.current?.click()}
           onDragOver={(event) => { event.preventDefault(); setDropping(true); }} onDragLeave={() => setDropping(false)}
           onDrop={(event) => { event.preventDefault(); setDropping(false); void choose(event.dataTransfer.files[0]); }}>

@@ -1,10 +1,14 @@
 /** Cloudflare Worker entry point for the vinext-starter template. */
 import { handleImageOptimization, DEFAULT_DEVICE_SIZES, DEFAULT_IMAGE_SIZES } from "vinext/server/image-optimization";
 import handler from "vinext/server/app-router-entry";
+import { handleTimetableRecognition, TIMETABLE_PATH } from "./timetable-recognition";
 
 interface Env {
   ASSETS: Fetcher;
   DB: D1Database;
+  DEEPSEEK_API_KEY?: string;
+  TIMETABLE_DAILY_LIMIT?: string;
+  TIMETABLE_IP_DAILY_LIMIT?: string;
   JOURNAL_PHOTOS: R2Bucket;
   IMAGES: {
     input(stream: ReadableStream): {
@@ -29,6 +33,8 @@ interface ExecutionContext {
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === TIMETABLE_PATH) return handleTimetableRecognition(request, env);
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

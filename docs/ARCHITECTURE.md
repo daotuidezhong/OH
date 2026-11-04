@@ -112,7 +112,9 @@ sequenceDiagram
 
 墙上原照片板的位置改为迷你周计划板（`app/game/planner/PlannerWall.tsx`），点开是周日程本（`PlannerOverlay.tsx`）。`app/game/planner/planner.ts` 集中定义数据与规则：每天分上午、下午、晚上三栏；课程按星期、上下课时间、第几周到第几周和单双周重复，教学周统一按周一到周日计算；课程下课后自动从日程中粉碎，单次调课或停课记为课程例外，不改动课程本身。任务只出现一次，拖进碎纸机删除、拖进完成文件夹算完成，每项最多奖励一次 3 颗草莓、每天最多 5 项。任务可以关联橙子专注钟，专注完成的轮数记在任务上。数据单独保存在 `berry-planner`，随桌面存档和 `.ohbackup` 迁移；提醒在开始前 10 分钟发出，桌面版由 Electron 主进程调度。旧版照片板的 `berry-photo-board` 和桌面照片目录会在启动时清除，旧备份导入时也会忽略照片板内容。
 
-截图导入课表（`TimetableImport.tsx`）使用玩家自己的 DeepSeek API Key，由页面直接调用 `deepseek-flash` 的图片输入和 JSON 输出（`timetable-ai.ts`）；提示词与结果校验、拆分周次、去重和生成课程集中在 `timetable-import.ts`，识别结果必须经过确认表才会写入。Key 不进入 `berry-*` 存档：桌面版由主进程用系统加密保存在 `ai-key.bin`，网页版保存在浏览器本地。
+首页迷你计划板使用中文星期“一、二、三、四、五、六、日”，不以月内日期作为星期标题。日程本在同一天、同一时段内按原卡片颜色分组，多项同色安排折叠为带色标、数量与摘要的组卡；点开仍是各自的原卡片，单项直接操作不变。每格最多显示 3 组，多余内容通过“查看全部”展开；不改变存档结构或放大日历，沿用木框、奶油纸张与六种原配色。
+
+截图导入课表（`TimetableImport.tsx`）调用 OH 的共用 `/api/timetable-recognition`；桌面版通过现有公开 Sites 地址请求，网页通过同源接口请求。`worker/timetable-recognition.ts` 读取服务端 `DEEPSEEK_API_KEY`，固定使用 `deepseek-flash` 图片输入和 JSON 输出，仅返回校验后的课程，不保存截图。`timetable_usage` 使用 D1 原子 UPSERT 执行每日全局及 IP 配额；默认共用 200 次、单 IP 20 次，IP 按日做 HMAC 后保存。提示词、拆分周次、去重和生成课程集中在 `timetable-import.ts`，识别结果必须经过确认表才会写入。共用 Key 不进入客户端、`berry-*` 存档或备份；旧版玩家自存 Key 的文件保留兼容，不再用于新导入流程。
 
 ## 5. 网页版与桌面版差异
 

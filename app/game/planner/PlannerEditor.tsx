@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { minutesOf, PLANNER_COLORS, PLANNER_SLOTS, PRIORITY_LABELS, SLOT_LABELS, slotForTime, WEEKDAY_LABELS, type PlannerColor, type PlannerPriority, type PlannerSlot, type WeekParity } from "./planner";
+import { minutesOf, PLANNER_COLOR_LABELS, PLANNER_COLORS, PLANNER_SLOTS, PRIORITY_LABELS, SLOT_LABELS, slotForTime, WEEKDAY_LABELS, type PlannerColor, type PlannerPriority, type PlannerSlot, type WeekParity } from "./planner";
 
 export type PlannerDraft = {
   mode: "new" | "edit";
@@ -30,7 +30,6 @@ type Props = {
   onFocus?: () => void;
 };
 
-const COLOR_NAMES: Record<PlannerColor, string> = { berry: "莓果粉", orange: "橙子橙", sage: "薄荷绿", sky: "天空蓝", lilac: "葡萄紫", cream: "奶油黄" };
 const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
 
 function validate(draft: PlannerDraft) {
@@ -88,7 +87,7 @@ export default function PlannerEditor({ draft: initial, onSave, onCancel, onDele
         {([null, "low", "medium", "high"] as PlannerPriority[]).map((priority) => <button type="button" key={priority ?? "none"} className={`${draft.priority === priority ? "active" : ""} ${priority === "high" ? "high" : ""}`} aria-pressed={draft.priority === priority} onClick={() => update({ priority })}>{priority ? PRIORITY_LABELS[priority] : "无"}</button>)}
       </fieldset>
       <fieldset className="planner-field wide planner-swatches"><legend>颜色</legend>
-        {PLANNER_COLORS.map((color) => <button type="button" key={color} className={`planner-color-${color} ${draft.color === color ? "active" : ""}`} aria-pressed={draft.color === color} aria-label={COLOR_NAMES[color]} title={COLOR_NAMES[color]} onClick={() => update({ color })} />)}
+        {PLANNER_COLORS.map((color) => <button type="button" key={color} className={`planner-color-${color} ${draft.color === color ? "active" : ""}`} aria-pressed={draft.color === color} aria-label={PLANNER_COLOR_LABELS[color]} title={PLANNER_COLOR_LABELS[color]} onClick={() => update({ color })} />)}
       </fieldset>
       <label className="planner-field wide"><span>备注</span><textarea rows={2} value={draft.note} maxLength={200} placeholder="可不填" onChange={(event) => update({ note: event.target.value })} /></label>
 

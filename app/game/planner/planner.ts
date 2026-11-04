@@ -96,6 +96,7 @@ export const SLOT_LABELS: Record<PlannerSlot, string> = { morning: "上午", aft
 export const SLOT_DEFAULT_START: Record<PlannerSlot, string> = { morning: "08:00", afternoon: "14:00", evening: "19:00" };
 export const PLANNER_SLOTS: PlannerSlot[] = ["morning", "afternoon", "evening"];
 export const PLANNER_COLORS: PlannerColor[] = ["berry", "orange", "sage", "sky", "lilac", "cream"];
+export const PLANNER_COLOR_LABELS: Record<PlannerColor, string> = { berry: "莓果粉", orange: "橙子橙", sage: "薄荷绿", sky: "天空蓝", lilac: "葡萄紫", cream: "奶油黄" };
 export const WEEKDAY_LABELS = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
 export const PRIORITY_LABELS: Record<Exclude<PlannerPriority, null>, string> = { high: "高", medium: "中", low: "低" };
 
@@ -236,6 +237,18 @@ export function sortPlannerItems(items: PlannerItem[]) {
     const rightTime = right.startTime ? minutesOf(right.startTime) : 10_000 + right.order;
     return leftTime - rightTime || left.title.localeCompare(right.title, "zh-CN");
   });
+}
+
+/** A display group never changes the independently saved tasks or course occurrences. */
+export function groupPlannerItems(items: PlannerItem[]) {
+  const groups = new Map<string, { key: string; date: string; slot: PlannerSlot; color: PlannerColor; items: PlannerItem[] }>();
+  for (const item of sortPlannerItems(items)) {
+    const key = `${item.date}:${item.slot}:${item.color}`;
+    const group = groups.get(key);
+    if (group) group.items.push(item);
+    else groups.set(key, { key, date: item.date, slot: item.slot, color: item.color, items: [item] });
+  }
+  return [...groups.values()];
 }
 
 /** Courses disappear once their class has ended; tasks stay until they are shredded or filed as done. */

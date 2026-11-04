@@ -5,7 +5,7 @@ import TimetableImport from "./TimetableImport";
 import DoneArchive from "./DoneArchive";
 import { ConfettiBurst, DoneFolder, Shredder, SHRED_FEED_MS, ShredderFeed, SlicedCard, type ShredFeedGeometry } from "./PlannerEffects";
 import {
-  addDays, getTeachingWeek, itemEndsAt, moveCourseEveryWeek, moveCourseOnce, moveTask, nextOrder, PLANNER_DAILY_REWARD_LIMIT, PLANNER_SLOTS, PLANNER_TASK_REWARD,
+  addDays, getTeachingWeek, groupPlannerItems, itemEndsAt, moveCourseEveryWeek, moveCourseOnce, moveTask, nextOrder, PLANNER_COLOR_LABELS, PLANNER_DAILY_REWARD_LIMIT, PLANNER_SLOTS, PLANNER_TASK_REWARD,
   PRIORITY_LABELS, removeCourse, removeTask, restoreTask, skipCourseOnce, SLOT_DEFAULT_START, SLOT_LABELS, slotForTime, startOfWeek, visiblePlannerItems,
   weekDates, WEEKDAY_LABELS, type CourseException, type PlannerColor, type PlannerCourse, type PlannerItem, type PlannerSlot, type PlannerState, type PlannerTask,
 } from "./planner";
@@ -30,7 +30,7 @@ type Notice = { id: number; text: string; undo?: (current: PlannerState) => Plan
 type Shredding = { item: PlannerItem; seed: number };
 type BinShred = Shredding & { geometry: ShredFeedGeometry };
 
-const CELL_VISIBLE_CARDS = 3;
+const CELL_VISIBLE_GROUPS = 3;
 const SLOT_ICONS: Record<PlannerSlot, string> = { morning: "☀️", afternoon: "⛅", evening: "🌙" };
 const SHRED_MS = 1250;
 const NOTICE_MS = 5200;
@@ -115,7 +115,7 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
   const [importOpen, setImportOpen] = useState(false);
   const [scope, setScope] = useState<ScopeChoice | null>(null);
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [expanded, setExpanded] = useState<{ date: string; slot: PlannerSlot } | null>(null);
+  const [expanded, setExpanded] = useState<{ date: string; slot: PlannerSlot; color?: PlannerColor } | null>(null);
   const [inPlaceShreds, setInPlaceShreds] = useState<Shredding[]>([]);
   const [binShred, setBinShred] = useState<BinShred | null>(null);
   const shredderRef = useRef<HTMLSpanElement>(null);
@@ -128,6 +128,7 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
   const folderRef = useRef<HTMLButtonElement>(null);
   const pressRef = useRef<{ item: PlannerItem; pointerId: number; startX: number; startY: number; offsetX: number; offsetY: number; width: number; active: boolean } | null>(null);
   const expandTimer = useRef<number | undefined>(undefined);
+  const expandTargetRef = useRef<HTMLElement | null>(null);
   const previousVisible = useRef<Map<string, PlannerItem> | null>(null);
   const timers = useRef<number[]>([]);
 
@@ -279,7 +280,12 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
       moveEvent.preventDefault();
       const target = findTarget(moveEvent.clientX, moveEvent.clientY, press.item.key);
       const chip = document.elementsFromPoint(moveEvent.clientX, moveEvent.clientY).map((element) => element instanceof HTMLElement ? element.closest<HTMLElement>("[data-expand-date]") : null).find(Boolean);
-      if (chip && !expandTimer.current) expandTimer.current = window.setTimeout(() => { setExpanded({ date: chip.dataset.expandDate!, slot: chip.dataset.expandSlot as PlannerSlot }); expandTimer.current = undefined; }, 550);
+      if (expandTargetRef.current !== (chip ?? null)) {
+        window.clearTimeout(expandTimer.current);
+        expandTimer.current = undefined;
+        expandTargetRef.current = chip ?? null;
+      }
+      if (chip && !expandTimer.current) expandTimer.current = window.setTimeout(() => { setExpanded({ date: chip.dataset.expandDate!, slot: chip.dataset.expandSlot as PlannerSlot, color: chip.dataset.expandColor as PlannerColor | undefined }); expandTimer.current = undefined; }, 550);
       if (!chip && expandTimer.current) { window.clearTimeout(expandTimer.current); expandTimer.current = undefined; }
       setDrag({ item: press.item, x: moveEvent.clientX, y: moveEvent.clientY, offsetX: press.offsetX, offsetY: press.offsetY, width: press.width, target });
     };
@@ -290,6 +296,7 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
       window.removeEventListener("pointerup", finish);
       window.removeEventListener("pointercancel", finish);
       window.clearTimeout(expandTimer.current); expandTimer.current = undefined;
+      expandTargetRef.current = null;
       pressRef.current = null;
       setDrag(null);
       if (!press.active) { if (endEvent.type === "pointerup") openEditor(press.item); return; }
@@ -304,7 +311,7 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
   const originX = origin ? origin.left + origin.width / 2 : window.innerWidth * .8;
   const originY = origin ? origin.top + origin.height / 2 : window.innerHeight * .25;
   const card = (item: PlannerItem) => <PlannerCard key={item.key} item={item} ghost={drag?.item.key === item.key} onPointerDown={(event) => startPress(event, item)} onOpen={() => openEditor(item)} onFocus={item.kind === "task" ? () => onStartFocus(item.id) : undefined} />;
-  const expandedItems = expanded ? visible.filter((item) => sameCell(item, expanded.date, expanded.slot)) : [];
+  const expandedItems = expanded ? visible.filter((item) => sameCell(item, expanded.date, expanded.slot) && (!expanded.color || item.color === expanded.color)) : [];
 
   return <div className={`planner-layer ${drag ? "is-dragging" : ""}`} role="presentation" onPointerDown={() => { if (!drag) onClose(); }}>
     <section className="planner-overlay" role="dialog" aria-modal="true" aria-label="日程本" style={{ "--board-origin-x": `${originX}px`, "--board-origin-y": `${originY}px` } as CSSProperties} onPointerDown={(event) => event.stopPropagation()} onClickCapture={(event) => {
@@ -339,13 +346,24 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
             <span className="planner-slot-label"><i aria-hidden="true">{SLOT_ICONS[slot]}</i>{SLOT_LABELS[slot]}</span>
             {shownDates.map((date) => {
               const items = visible.filter((item) => sameCell(item, date, slot));
-              const shown = items.length > CELL_VISIBLE_CARDS ? items.slice(0, CELL_VISIBLE_CARDS) : items;
+              const groups = groupPlannerItems(items);
+              const shown = groups.slice(0, CELL_VISIBLE_GROUPS);
               const shreds = inPlaceShreds.filter((entry) => sameCell(entry.item, date, slot));
               const hot = hotCell && hotCell.date === date && hotCell.slot === slot && !(drag && sameCell(drag.item, date, slot) && drag.item.kind === "course");
               return <div key={date} className={`planner-cell ${date === today ? "today" : ""} ${hot ? "hot" : ""}`} data-planner-drop="cell" data-date={date} data-slot={slot}>
-                {shown.map(card)}
+                {shown.map((group) => group.items.length === 1 ? card(group.items[0]) : <button
+                  key={group.key} type="button" className={`planner-group planner-color-${group.color}`}
+                  data-expand-date={date} data-expand-slot={slot} data-expand-color={group.color}
+                  aria-label={`展开${PLANNER_COLOR_LABELS[group.color]}组，${group.items.length}项安排`}
+                  aria-expanded={expanded?.date === date && expanded.slot === slot && expanded.color === group.color}
+                  onClick={() => setExpanded({ date, slot, color: group.color })}
+                >
+                  <span className="planner-group-heading"><b>{PLANNER_COLOR_LABELS[group.color]}</b><span>{group.items.length} 项 ▸</span></span>
+                  <span className="planner-group-preview">{group.items.map((item) => item.title).join("、")}</span>
+                  <span className="planner-group-meta">{group.items.filter((item) => item.kind === "course").length} 门课 · {group.items.filter((item) => item.kind === "task").length} 个任务{group.items[0].startTime ? ` · ${group.items[0].startTime} 起` : ""}</span>
+                </button>)}
                 {shreds.map((entry) => <ShreddingCard key={`shred-${entry.item.key}`} shredding={entry} />)}
-                {items.length > shown.length && <button type="button" className="planner-more" data-expand-date={date} data-expand-slot={slot} onClick={() => setExpanded({ date, slot })}>展开另外 {items.length - shown.length} 项 ▾</button>}
+                {groups.length > shown.length && <button type="button" className="planner-more" data-expand-date={date} data-expand-slot={slot} onClick={() => setExpanded({ date, slot })}>查看全部 {items.length} 项 ▾</button>}
                 <button type="button" className="planner-add" data-planner-add aria-label={`在${weekdayLabel(date)}${SLOT_LABELS[slot]}新建`} onClick={() => setEditor(newDraft(date, slot))}>＋</button>
               </div>;
             })}
@@ -359,17 +377,18 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
           <span ref={shredderRef}><Shredder hot={drag?.target?.type === "trash"} busy={Boolean(binShred)} pile={pile} /></span>
           <small>拖进来<br />粉碎删除</small>
         </span>
-        <p className="planner-hint">拖动卡片换天或时段 · <b>课程下课后自动粉碎</b><br />任务拖进文件夹算完成，每项 🍓 {PLANNER_TASK_REWARD}（今天还能领 {rewardsLeft} 次）</p>
+        <p className="planner-hint">同色安排点开看详情 · 拖动卡片换天或时段<br /><b>课程下课后自动粉碎</b> · 任务完成每项 🍓 {PLANNER_TASK_REWARD}（今天还能领 {rewardsLeft} 次）</p>
         <span className={`planner-drop planner-done ${drag?.target?.type === "folder" ? "hot" : ""} ${folderRefusing ? "refusing" : ""}`} data-planner-drop="folder">
-          <small>拖进来<br />完成 + 彩带</small>
+          <small>拖进来</small>
           <button ref={folderRef} type="button" className="planner-folder-button" aria-label={`完成文件夹，已完成 ${completed.length} 项，点击打开`} onClick={() => setDoneOpen(true)}>
             <DoneFolder hot={drag?.target?.type === "folder"} swallowing={swallowing} count={completed.length} />
           </button>
         </span>
       </footer>
 
-      {expanded && <div className="planner-expanded" data-planner-drop="cell" data-date={expanded.date} data-slot={expanded.slot} role="dialog" aria-label={`${weekdayLabel(expanded.date)}${SLOT_LABELS[expanded.slot]}的全部安排`}>
-        <header><b>{weekdayLabel(expanded.date)}{SLOT_LABELS[expanded.slot]} · 全部 {expandedItems.length} 项</b><button type="button" onClick={() => setExpanded(null)} aria-label="收起">×</button></header>
+      {expanded && <div className={`planner-expanded ${expanded.color ? `planner-color-${expanded.color}` : ""}`} data-planner-drop="cell" data-date={expanded.date} data-slot={expanded.slot} role="dialog" aria-label={`${weekdayLabel(expanded.date)}${SLOT_LABELS[expanded.slot]}的${expanded.color ? `${PLANNER_COLOR_LABELS[expanded.color]}组` : "全部安排"}`}>
+        <header><b>{weekdayLabel(expanded.date)}{SLOT_LABELS[expanded.slot]} · {expanded.color ? PLANNER_COLOR_LABELS[expanded.color] : "全部"} {expandedItems.length} 项</b><button type="button" onClick={() => setExpanded(null)} aria-label="收起">×</button></header>
+        {expandedItems.length === 0 && <p className="planner-dialog-note">这组安排已处理完</p>}
         {expandedItems.map(card)}
       </div>}
 

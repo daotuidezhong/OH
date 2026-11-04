@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  completeTask, courseOccurrences, getTeachingWeek, groupCompletedByDay, INITIAL_PLANNER, moveCourseEveryWeek, moveCourseOnce, moveTask, normalizePlanner, PLANNER_DAILY_REWARD_LIMIT,
+  completeTask, courseOccurrences, getTeachingWeek, groupCompletedByDay, groupPlannerItems, INITIAL_PLANNER, moveCourseEveryWeek, moveCourseOnce, moveTask, normalizePlanner, PLANNER_DAILY_REWARD_LIMIT,
   PLANNER_TASK_REWARD, removeCourse, restoreTask, shiftTimesToSlot, skipCourseOnce, slotForTime, upcomingReminders, visiblePlannerItems, weekDates,
 } from "../app/game/planner/planner.ts";
 
@@ -87,6 +87,42 @@ test("dragging tasks reorders within a slot and moves times with the slot", () =
   const moved = moveTask(planner, "c", "2026-11-05", "afternoon");
   const c = moved.tasks.find((item) => item.id === "c");
   assert.deepEqual([c.date, c.slot, c.startTime, c.endTime], ["2026-11-05", "afternoon", "14:00", "15:00"]);
+});
+
+test("color groups share only a day and slot and preserve every independently actionable item", () => {
+  const planner = { ...semester, tasks: [
+    task("same-course-color", "2026-11-02", "afternoon", { color: "sky", startTime: "15:50" }),
+    task("other-day", "2026-11-03", "afternoon", { color: "sky" }),
+    task("other-slot", "2026-11-02", "morning", { color: "sky" }),
+    task("other-color", "2026-11-02", "afternoon", { color: "berry" }),
+  ] };
+  const before = JSON.stringify(planner);
+  const items = visiblePlannerItems(planner, weekDates("2026-11-02", 1), new Date("2026-11-02T07:00:00").getTime());
+  const groups = groupPlannerItems(items);
+  const combined = groups.find(group => group.date === "2026-11-02" && group.slot === "afternoon" && group.color === "sky");
+  assert.deepEqual(combined.items.map(item => [item.kind, item.id]), [["course", "english"], ["task", "same-course-color"]]);
+  assert.equal(groups.find(group => group.date === "2026-11-03" && group.color === "sky").items.length, 1);
+  assert.equal(groups.find(group => group.date === "2026-11-02" && group.slot === "morning").items.length, 1);
+  assert.equal(groups.find(group => group.color === "berry").items.length, 1);
+  assert.deepEqual(groups.flatMap(group => group.items.map(item => item.key)).sort(), items.map(item => item.key).sort());
+  assert.equal(JSON.stringify(planner), before);
+  const completed = completeTask(planner, "same-course-color", new Date("2026-11-02T08:00:00"));
+  assert.equal(completed.reward, 3);
+  assert.ok(courseOccurrences(completed.state, weekDates("2026-11-02", 1)).some(item => item.id === "english"));
+  assert.ok(!visiblePlannerItems(completed.state, weekDates("2026-11-02", 1), new Date("2026-11-02T08:00:00").getTime()).some(item => item.id === "same-course-color"));
+});
+
+test("many same-color tasks collapse to one group without losing order or changing their saved dates", () => {
+  const planner = { ...INITIAL_PLANNER, tasks: Array.from({ length: 30 }, (_, index) => task(`item-${index}`, "2026-11-04", "morning", { order: index })) };
+  const items = visiblePlannerItems(planner, ["2026-11-04"], new Date("2026-11-04T07:00:00").getTime());
+  const groups = groupPlannerItems(items);
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].items.length, 30);
+  assert.deepEqual(groups[0].items.map(item => item.id), planner.tasks.map(item => item.id));
+  const moved = moveTask(planner, "item-10", "2026-11-05", "evening");
+  const regrouped = groupPlannerItems(visiblePlannerItems(moved, ["2026-11-04", "2026-11-05"], new Date("2026-11-04T07:00:00").getTime()));
+  assert.deepEqual(regrouped.map(group => group.items.length).sort((a, b) => a - b), [1, 29]);
+  assert.equal(moved.tasks.find(item => item.id === "item-10").date, "2026-11-05");
 });
 
 test("completing tasks pays once per task and caps daily rewards", () => {

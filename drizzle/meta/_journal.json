@@ -29,6 +29,13 @@
       "when": 1787746428949,
       "tag": "0003_skinny_dreadnoughts",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793794624292,
+      "tag": "0004_typical_drax",
+      "breakpoints": true
     }
   ]
 }

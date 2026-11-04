@@ -747,9 +747,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.12"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.13"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.12"[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"[\s\S]*三只猫保持原始体型[\s\S]*version: "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.13"[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"[\s\S]*三只猫保持原始体型[\s\S]*version: "0\.9\.10"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
@@ -801,7 +801,7 @@ test("replaces the photo board with a wall planner without changing room, yard, 
   assert.match(css, /\.scene-planner\.is-open \.scene-planner-art \{[^}]*opacity: 0/);
   assert.match(wall, /ART_WIDTH = 96[\s\S]*ART_HEIGHT = 58[\s\S]*createImageData\(ART_WIDTH, ART_HEIGHT\)/);
   assert.match(wall, /WALL_BARS_PER_SLOT = 2[\s\S]*slotItems\.slice\(0, WALL_BARS_PER_SLOT\)[\s\S]*slotItems\.length > shown\.length/);
-  assert.match(overlay, /CELL_VISIBLE_CARDS = 3[\s\S]*展开另外 \{items\.length - shown\.length\} 项/);
+  assert.match(overlay, /CELL_VISIBLE_GROUPS = 3[\s\S]*groupPlannerItems\(items\)[\s\S]*查看全部 \{items\.length\} 项/);
   assert.match(overlay, /data-planner-drop="trash"[\s\S]*data-planner-drop="folder"/);
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.planner-confetti \{ display: none; \}/);
   assert.doesNotMatch(source, /scene\s*=\s*["']planner|scene:\s*["']planner/);
