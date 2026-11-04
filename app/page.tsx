@@ -24,9 +24,9 @@ import { advanceFeeding, beginFeeding, DEFAULT_BOWL_POSITION, EMPTY_FEEDING, fin
 import { EatingSprite, FoodBowl } from "./game/FeedingSprites";
 import { getFeedingDockOffset } from "./game/feeding-pose";
 import { furnitureCollision, useRoomDepth } from "./game/room-depth";
-import PhotoBoardWall from "./game/photo-board/PhotoBoardWall";
-import PhotoBoardOverlay from "./game/photo-board/PhotoBoardOverlay";
-import { normalizePhotoBoard, PHOTO_BOARD_STORAGE_KEY, stablePhotoRotation, type PhotoBoardPhoto } from "./game/photo-board/types";
+import PlannerWall from "./game/planner/PlannerWall";
+import PlannerOverlay from "./game/planner/PlannerOverlay";
+import { completeTask, INITIAL_PLANNER, normalizePlanner, PLANNER_STORAGE_KEY, upcomingReminders, type PlannerState } from "./game/planner/planner";
 import {
   formatPomodoroTime,
   getPomodoroRemaining,
@@ -81,7 +81,7 @@ type HistoryBatch = { records: CheckinRecord[]; total: number; totalDays: number
 type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "error"; name?: string; notes?: string; percent?: number; message?: string };
 type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
 type PhotoActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: JournalPhoto };
-type PhotoBoardActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: Pick<PhotoBoardPhoto, "id" | "fileName" | "width" | "height"> };
+type PlannerReminder = { key: string; at: number; title: string; body: string };
 type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
@@ -179,6 +179,7 @@ declare global {
       storage: {
         load: (key: string) => string | null;
         save: (key: string, value: string) => void;
+        remove?: (key: string) => void;
         exportBackup: () => Promise<BackupActionResult>;
         importBackup: () => Promise<BackupActionResult>;
         refreshCache: () => Record<string, string>;
@@ -192,9 +193,14 @@ declare global {
         cancel: () => void;
         onFinished: (callback: (phase: PomodoroPhase) => void) => () => void;
       };
-      photoBoard?: {
-        select: () => Promise<PhotoBoardActionResult>;
-        remove: (fileName: string) => Promise<boolean>;
+      planner?: {
+        scheduleReminders: (reminders: PlannerReminder[]) => void;
+      };
+      aiKey?: {
+        has: () => Promise<boolean>;
+        get: () => Promise<string | null>;
+        set: (key: string) => Promise<void>;
+        clear: () => Promise<void>;
       };
       pomodoroMini?: {
         open: () => void;
@@ -398,25 +404,12 @@ function writePersisted(key: string, value: string) {
   window.localStorage.setItem(key, value);
 }
 
-function photoBoardUrl(photo: PhotoBoardPhoto) {
-  if (photo.key) return `/api/photo-board-photos?key=${encodeURIComponent(photo.key)}`;
-  return photo.fileName ? `berry://photo-board/${encodeURIComponent(photo.fileName)}` : "";
+function removePersisted(key: string) {
+  window.gameUpdater?.storage.remove?.(key);
+  try { window.localStorage.removeItem(key); } catch { /* Nothing cached to clear. */ }
 }
 
-async function preparePhotoFile(file: File) {
-  if (!file.type.startsWith("image/") || file.size > 20_000_000) throw new Error("请选择不超过 20 MB 的照片");
-  const image = await createImageBitmap(file);
-  const scale = Math.min(1, 2000 / Math.max(image.width, image.height));
-  const width = Math.max(1, Math.round(image.width * scale));
-  const height = Math.max(1, Math.round(image.height * scale));
-  const canvas = document.createElement("canvas");
-  canvas.width = width; canvas.height = height;
-  const context = canvas.getContext("2d");
-  if (!context) { image.close(); throw new Error("照片处理失败"); }
-  context.drawImage(image, 0, 0, width, height); image.close();
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("照片处理失败")), "image/jpeg", .88));
-  return { blob, width, height };
-}
+const LEGACY_PHOTO_BOARD_KEY = "berry-photo-board";
 
 const PLOT_POSITIONS = [
   { x: 38, y: 45, width: 9.5, height: 8.8 }, { x: 48, y: 45, width: 9.5, height: 8.8 }, { x: 58, y: 45, width: 9.5, height: 8.8 }, { x: 68, y: 45, width: 9.5, height: 8.8 },
@@ -550,13 +543,12 @@ export default function Home() {
   const [pomodoroAlert, setPomodoroAlert] = useState<PomodoroPhase | null>(null);
   const [notificationPermission, setNotificationPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   const [dataTransferBusy, setDataTransferBusy] = useState<"export" | "import" | null>(null);
-  const [photoBoardOpen, setPhotoBoardOpen] = useState(false);
-  const [photoBoardOrigin, setPhotoBoardOrigin] = useState<DOMRect | null>(null);
-  const [photoBoardPhotos, setPhotoBoardPhotos] = useState<PhotoBoardPhoto[]>([]);
-  const [photoBoardReady, setPhotoBoardReady] = useState(false);
-  const [uploadingPhotoId, setUploadingPhotoId] = useState<string | null>(null);
-  const [photoUploadBusy, setPhotoUploadBusy] = useState(false);
-  const [deletingPhotoId, setDeletingPhotoId] = useState<string | null>(null);
+  const [plannerOpen, setPlannerOpen] = useState(false);
+  const [plannerOrigin, setPlannerOrigin] = useState<DOMRect | null>(null);
+  const [planner, setPlanner] = useState<PlannerState>(INITIAL_PLANNER);
+  const [plannerReady, setPlannerReady] = useState(false);
+  const [plannerNow, setPlannerNow] = useState(Date.now());
+  const plannerHour = Math.floor(plannerNow / 3_600_000);
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const pomodoroAudioContextRef = useRef<AudioContext | null>(null);
@@ -573,7 +565,6 @@ export default function Home() {
   const pouringTimer = useRef<number | undefined>(undefined);
   const ingredientPurchaseLock = useRef(false);
   const mixingTransactionLock = useRef(false);
-  const photoUploadLock = useRef(false);
   const historyLoadLock = useRef(false);
   const checkinSaveLock = useRef(false);
   const legacyJournal = useRef<{ lastCheckin: string | null; lastActivity: string | null }>({ lastCheckin: null, lastActivity: null });
@@ -600,8 +591,9 @@ export default function Home() {
       writePersisted("berry-workout-device", savedDeviceId);
     }
     setDeviceId(savedDeviceId);
-    try { setPhotoBoardPhotos(normalizePhotoBoard(JSON.parse(readPersisted(PHOTO_BOARD_STORAGE_KEY) ?? "[]"))); } catch { setPhotoBoardPhotos([]); }
-    setPhotoBoardReady(true);
+    try { setPlanner(normalizePlanner(JSON.parse(readPersisted(PLANNER_STORAGE_KEY) ?? "null"))); } catch { setPlanner(INITIAL_PLANNER); }
+    setPlannerReady(true);
+    if (readPersisted(LEGACY_PHOTO_BOARD_KEY) !== null) removePersisted(LEGACY_PHOTO_BOARD_KEY);
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Partial<GameState> & { food?: number };
@@ -880,20 +872,45 @@ export default function Home() {
     };
   }, []);
 
+  // Walking moves the cat every animation frame; saving each frame made the desktop app rewrite its save
+  // file sixty times a second, so position updates are batched until the walk settles.
   useEffect(() => {
-    if (ready) writePersisted("berry-workout-game", JSON.stringify(game));
-  }, [game, ready]);
+    if (!ready) return;
+    if (!walking) { writePersisted("berry-workout-game", JSON.stringify(game)); return; }
+    const timer = window.setTimeout(() => writePersisted("berry-workout-game", JSON.stringify(game)), 400);
+    return () => window.clearTimeout(timer);
+  }, [game, ready, walking]);
 
   useEffect(() => {
-    if (photoBoardReady) writePersisted(PHOTO_BOARD_STORAGE_KEY, JSON.stringify(photoBoardPhotos));
-  }, [photoBoardPhotos, photoBoardReady]);
+    if (plannerReady) writePersisted(PLANNER_STORAGE_KEY, JSON.stringify(planner));
+  }, [planner, plannerReady]);
 
   useEffect(() => {
-    if (!photoBoardOpen) return;
+    if (!plannerOpen) return;
     const previous = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = previous; };
-  }, [photoBoardOpen]);
+  }, [plannerOpen]);
+
+  useEffect(() => {
+    const tick = () => setPlannerNow(Date.now());
+    tick();
+    const timer = window.setInterval(tick, plannerOpen ? 15_000 : 60_000);
+    window.addEventListener("focus", tick);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", tick); };
+  }, [plannerOpen]);
+
+  useEffect(() => {
+    if (!plannerReady) return;
+    const reminders = upcomingReminders(planner, Date.now()).slice(0, 40);
+    const desktopPlanner = window.gameUpdater?.planner;
+    if (desktopPlanner) { desktopPlanner.scheduleReminders(reminders); return; }
+    const timers = reminders.map((reminder) => window.setTimeout(() => {
+      setToast(`${reminder.title}${reminder.body ? ` · ${reminder.body}` : ""}`);
+      if ("Notification" in window && Notification.permission === "granted") new Notification(reminder.title, { body: reminder.body });
+    }, reminder.at - Date.now()));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [planner, plannerReady, plannerHour]);
 
   useEffect(() => {
     const desktopPomodoro = window.gameUpdater?.pomodoro;
@@ -937,6 +954,7 @@ export default function Home() {
       } : current);
 
       if (result.event === "focus") {
+        setPlanner((current) => current.focusTaskId ? { ...current, tasks: current.tasks.map((task) => task.id === current.focusTaskId ? { ...task, pomodoros: task.pomodoros + 1 } : task) } : current);
         setToast(`专注完成！获得 🍓 ${POMODORO_REWARD}，休息 5 分钟吧`);
         setPomodoroAlert("focus");
         playPomodoroChime("focus");
@@ -1359,6 +1377,7 @@ export default function Home() {
   const pomodoroStyle = { "--pomodoro-progress": `${pomodoroProgress * 360}deg` } as CSSProperties;
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
+  const focusedPlannerTask = planner.focusTaskId ? planner.tasks.find((task) => task.id === planner.focusTaskId && !task.completedAt) ?? null : null;
   const desktopDataAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.storage.exportBackup);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
@@ -1536,65 +1555,29 @@ export default function Home() {
     setOverlay(null);
   }
 
-  function nextPhotoBoardSlot(photos: PhotoBoardPhoto[]) {
-    const occupied = new Set(photos.map((photo) => photo.slot));
-    let slot = 0;
-    while (occupied.has(slot)) slot += 1;
-    return slot;
+  function completePlannerTask(taskId: string) {
+    const result = completeTask(planner, taskId, new Date());
+    if (result.state === planner) return 0;
+    setPlanner(result.state);
+    if (result.reward) setGame((current) => ({ ...current, berries: current.berries + result.reward }));
+    if (!resting && !wakingUp && !feedingBusy && !walking) setStatusIdle(false);
+    return result.reward;
   }
 
-  function addPhotoBoardPhoto(photo: Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">) {
-    const next = { ...photo, caption: photo.caption ?? "", createdAt: new Date().toISOString(), rotation: stablePhotoRotation(photo.id) };
-    setPhotoBoardPhotos((current) => [...current, { ...next, slot: nextPhotoBoardSlot(current) }]);
-    setUploadingPhotoId(next.id);
-    window.setTimeout(() => setUploadingPhotoId((id) => id === next.id ? null : id), 900);
-    setToast("照片已经挂到照片板上了");
+  function startPlannerFocus(taskId: string) {
+    const task = planner.tasks.find((item) => item.id === taskId);
+    if (!task) return;
+    setPlanner((current) => ({ ...current, focusTaskId: taskId }));
+    setPlannerOpen(false);
+    openOverlay("pomodoro");
+    if (game.pomodoro.status === "idle" && game.pomodoro.phase === "focus") startPomodoroTimer();
+    setToast(`开始为「${task.title}」专注，完成后会记在这项任务上`);
   }
 
-  async function uploadDesktopPhotoBoardPhoto() {
-    const api = window.gameUpdater?.photoBoard;
-    if (!api || uploadingPhotoId || photoUploadLock.current) return;
-    photoUploadLock.current = true;
-    setPhotoUploadBusy(true);
-    try {
-      const result = await api.select();
-      if (result.status === "selected" && result.photo?.id && result.photo.fileName) addPhotoBoardPhoto(result.photo as Omit<PhotoBoardPhoto, "createdAt" | "slot" | "rotation">);
-      else if (result.status === "error") setToast(result.message ?? "照片导入失败");
-    } catch { setToast("照片导入失败"); }
-    finally { photoUploadLock.current = false; setPhotoUploadBusy(false); }
-  }
-
-  async function uploadWebPhotoBoardPhoto(file: File) {
-    if (uploadingPhotoId || photoUploadLock.current || !deviceId) return;
-    photoUploadLock.current = true;
-    setPhotoUploadBusy(true);
-    try {
-      const prepared = await preparePhotoFile(file);
-      const form = new FormData();
-      form.set("deviceId", deviceId); form.set("width", String(prepared.width)); form.set("height", String(prepared.height)); form.set("photo", prepared.blob, "photo-board.jpg");
-      const response = await fetch("/api/photo-board-photos", { method: "POST", body: form });
-      if (!response.ok) throw new Error("照片保存失败");
-      const data = await response.json() as { photo: { id: string; key: string; width: number; height: number } };
-      addPhotoBoardPhoto(data.photo);
-    } catch (error) { setToast(error instanceof Error ? error.message : "照片导入失败"); }
-    finally { photoUploadLock.current = false; setPhotoUploadBusy(false); }
-  }
-
-  function deletePhotoBoardPhoto(photo: PhotoBoardPhoto) {
-    if (deletingPhotoId) return;
-    setDeletingPhotoId(photo.id);
-    window.setTimeout(async () => {
-      let removed = true;
-      if (photo.fileName) removed = await window.gameUpdater?.photoBoard?.remove(photo.fileName).catch(() => false) ?? false;
-      else if (photo.key) removed = (await fetch("/api/photo-board-photos", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ deviceId, key: photo.key }) }).catch(() => null))?.ok ?? false;
-      if (removed) { setPhotoBoardPhotos((current) => current.filter((item) => item.id !== photo.id)); setToast("照片已经轻轻取下来了"); }
-      else setToast("照片暂时无法删除，请稍后再试");
-      setDeletingPhotoId(null);
-    }, 360);
-  }
-
-  function updatePhotoBoardCaption(photoId: string, caption: string) {
-    setPhotoBoardPhotos((current) => current.map((photo) => photo.id === photoId ? { ...photo, caption } : photo));
+  function writePlannerJournal(title: string) {
+    setNoteText((draft) => draft.trim() ? `${draft.trimEnd()}\n完成了：${title}` : `完成了：${title}`);
+    setPlannerOpen(false);
+    openOverlay("quest");
   }
 
   async function nextHistoryPage() {
@@ -2516,7 +2499,7 @@ export default function Home() {
       <section className="game-stage" aria-label="OH 像素生活小屋">
         <audio ref={audioRef} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => skipTrack(1)} onError={() => { void recoverPlayback(); }} />
         <div
-          className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""} ${photoBoardOpen ? "photo-board-background" : ""}`}
+          className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""} ${plannerOpen ? "planner-background" : ""}`}
           data-period={timePeriod}
           data-weather={weather.kind}
           ref={roomRef}
@@ -2543,7 +2526,7 @@ export default function Home() {
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
           {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
-          {game.scene === "room" && <PhotoBoardWall open={photoBoardOpen} photos={photoBoardPhotos} photoUrl={photoBoardUrl} onOpen={(rect) => { setPhotoBoardOrigin(rect); setPhotoBoardOpen(true); }} />}
+          {game.scene === "room" && <PlannerWall open={plannerOpen} planner={planner} today={today} now={plannerNow} onOpen={(rect) => { setPlannerOrigin(rect); setPlannerNow(Date.now()); setPlannerOpen(true); }} />}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
             const plot = game.farmPlots[index];
@@ -2642,7 +2625,7 @@ export default function Home() {
               {["LOWER_HEAD", "EATING", "FINISH_EATING"].includes(feeding.phase)
                 ? <EatingSprite feeding={feeding} />
                 : walking
-                ? <span className="cat-base cat-walk-sprite cat-pose-walk" role="img" aria-label={`${game.petNames[id]}正在行走`} data-walk-direction={direction} data-walk-frame={walkFrame} style={{ backgroundImage: `url(${pet.walkSheet})`, "--walk-frame": walkFrame, "--walk-row": WALK_DIRECTION_ROW[direction] } as CSSProperties} />
+                ? <span className="cat-base cat-walk-sprite cat-pose-walk" role="img" aria-label={`${game.petNames[id]}正在行走`} data-walk-direction={direction} data-walk-frame={walkFrame} style={{ "--walk-frame": walkFrame, "--walk-row": WALK_DIRECTION_ROW[direction] } as CSSProperties}><img className="cat-walk-sheet" src={pet.walkSheet} alt="" decoding="sync" draggable={false} /></span>
                 : <img className={`cat-base cat-pose-${activePose}`} src={feeding.phase === "WAKING" ? feeding.elapsed < 280 ? pet.sleep : feeding.elapsed < 560 ? pet.wake : pet.wakeYawnFrames[Math.min(3, Math.floor((feeding.elapsed - 560) / 210))] : feedingBusy ? pet.idle : catAsset} alt={`${game.petNames[id]}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${facingLeft ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />}
               <b>{feedingBusy ? feeding.phase === "WAKING" ? "起床吃饭…" : feeding.phase === "WALK_TO_BOWL" ? "去吃饭…" : feeding.phase === "FINISH_EATING" ? "吃饱啦" : "吃饭中…" : headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : game.petNames[id]}</b>
             </div>;
@@ -2650,19 +2633,17 @@ export default function Home() {
 
         </div>
 
-        <PhotoBoardOverlay
-          open={photoBoardOpen && game.scene === "room"}
-          origin={photoBoardOrigin}
-          photos={photoBoardPhotos}
-          uploadingId={uploadingPhotoId}
-          uploadingBusy={photoUploadBusy}
-          deletingId={deletingPhotoId}
-          photoUrl={photoBoardUrl}
-          onClose={() => setPhotoBoardOpen(false)}
-          onUpload={(file) => void uploadWebPhotoBoardPhoto(file)}
-          onDesktopUpload={typeof window !== "undefined" && window.gameUpdater?.photoBoard ? () => void uploadDesktopPhotoBoardPhoto() : undefined}
-          onDelete={deletePhotoBoardPhoto}
-          onUpdateCaption={updatePhotoBoardCaption}
+        <PlannerOverlay
+          open={plannerOpen && game.scene === "room"}
+          origin={plannerOrigin}
+          planner={planner}
+          today={today}
+          now={plannerNow}
+          onChange={setPlanner}
+          onClose={() => setPlannerOpen(false)}
+          onCompleteTask={completePlannerTask}
+          onStartFocus={startPlannerFocus}
+          onWriteJournal={writePlannerJournal}
         />
 
         {seedStorageOpen && game.scene === "yard" && (
@@ -2786,6 +2767,7 @@ export default function Home() {
                         <button type="button" onClick={resetPomodoroTimer}>重置</button>
                         {game.pomodoro.phase === "break" && <button type="button" onClick={skipCurrentBreak}>跳过休息</button>}
                       </div>
+                      {focusedPlannerTask && <p className="pomodoro-planner-task"><span>🗓️ 正在为「{focusedPlannerTask.title}」专注{focusedPlannerTask.pomodoros ? `，已完成 ${focusedPlannerTask.pomodoros} 轮` : ""}</span><button type="button" onClick={() => setPlanner((current) => ({ ...current, focusTaskId: null }))}>取消关联</button></p>}
                       <p className="pomodoro-background-note"><span aria-hidden="true">◉</span> 关闭橙子专注钟窗口或把游戏放到后台，计时都会继续</p>
                     </section>
 

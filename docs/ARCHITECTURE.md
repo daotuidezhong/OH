@@ -108,6 +108,12 @@ sequenceDiagram
 
 `app/game/pomodoro.ts` 集中定义 25 分钟专注、5 分钟休息、每次 5 颗草莓奖励，以及开始、暂停、恢复和跨后台结算规则。计时使用绝对结束时间，不依赖前台逐秒累减；状态随 `berry-workout-game` 保存。网页版通过系统通知提示，Windows / macOS 版由 Electron 主进程调度本地通知，窗口最小化后仍会继续计时。
 
+### 4.6 日程本
+
+墙上原照片板的位置改为迷你周计划板（`app/game/planner/PlannerWall.tsx`），点开是周日程本（`PlannerOverlay.tsx`）。`app/game/planner/planner.ts` 集中定义数据与规则：每天分上午、下午、晚上三栏；课程按星期、上下课时间、第几周到第几周和单双周重复，教学周统一按周一到周日计算；课程下课后自动从日程中粉碎，单次调课或停课记为课程例外，不改动课程本身。任务只出现一次，拖进碎纸机删除、拖进完成文件夹算完成，每项最多奖励一次 3 颗草莓、每天最多 5 项。任务可以关联橙子专注钟，专注完成的轮数记在任务上。数据单独保存在 `berry-planner`，随桌面存档和 `.ohbackup` 迁移；提醒在开始前 10 分钟发出，桌面版由 Electron 主进程调度。旧版照片板的 `berry-photo-board` 和桌面照片目录会在启动时清除，旧备份导入时也会忽略照片板内容。
+
+截图导入课表（`TimetableImport.tsx`）使用玩家自己的 DeepSeek API Key，由页面直接调用 `deepseek-flash` 的图片输入和 JSON 输出（`timetable-ai.ts`）；提示词与结果校验、拆分周次、去重和生成课程集中在 `timetable-import.ts`，识别结果必须经过确认表才会写入。Key 不进入 `berry-*` 存档：桌面版由主进程用系统加密保存在 `ai-key.bin`，网页版保存在浏览器本地。
+
 ## 5. 网页版与桌面版差异
 
 | 能力 | 网页版 | Windows / macOS 版 |
@@ -182,6 +188,7 @@ sequenceDiagram
 | 2026-08-25 | `POMODORO` | 新增 25+5 橙子专注钟、每循环 5 草莓奖励、累计记忆、完成动画和网页／Windows 后台提醒 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `DESKTOP`, `TEST` | 网页构建与自动回归检查通过；桌面通知桥接已覆盖 |
 | 2026-08-26 | `JOURNAL-PHOTO` | 日记支持导入一张内部照片，最长边 1600 像素等比例处理，并随完整备份跨平台迁移 | `GAME-UI`, `DATA-LOCAL`, `DESKTOP`, `TEST` | 43 项回归检查通过；Windows、Apple 芯片和 Intel Mac 安装包构建成功 |
 | 2026-08-26 | `JOURNAL-PHOTO-WEB` | 网页版新增照片内部存储、上传后与历史记录大图预览，并加强备份完整性与导入失败回滚 | `GAME-UI`, `WEB-API`, `DATA-DB`, `DATA-LOCAL`, `TEST` | 网页构建、43 项回归检查和跨平台备份测试通过 |
+| 2026-11-04 | `PLANNER` | 照片板替换为墙上迷你周计划板与周日程本：三栏时段、课程周次与单双周、拖动调整、碎纸机删除、完成文件夹与彩带、专注钟联动和课前提醒 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `DESKTOP`, `TEST` | 网页构建、类型检查与全部自动测试通过；网页版拖动、粉碎、完成和周次设置实测通过 |
 
 ### 院子与种植状态
 

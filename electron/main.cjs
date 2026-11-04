@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, Notification, protocol } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, Notification, protocol, safeStorage } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -34,7 +34,8 @@ if (singleInstance) app.whenReady().then(() => {
     : path.join(__dirname, "../desktop-dist");
   const userDataRoot = app.getPath("userData");
   const journalPhotosDirectory = path.join(userDataRoot, "journal-photos");
-  const photoBoardDirectory = path.join(userDataRoot, "photo-board-photos");
+  // The wall photo board was replaced by the planner; its photos are no longer kept.
+  fs.rmSync(path.join(userDataRoot, "photo-board-photos"), { recursive: true, force: true });
 
   protocol.handle("berry", async (request) => {
     const url = new URL(request.url);
@@ -43,12 +44,6 @@ if (singleInstance) app.whenReady().then(() => {
       const name = path.basename(pathname);
       const file = path.join(journalPhotosDirectory, name);
       if (!/^journal-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
-      return net.fetch(pathToFileURL(file).toString());
-    }
-    if (url.hostname === "photo-board") {
-      const name = path.basename(pathname);
-      const file = path.join(photoBoardDirectory, name);
-      if (!/^board-[0-9a-f-]{36}\.jpg$/i.test(name) || !fs.existsSync(file)) return new Response("Not found", { status: 404 });
       return net.fetch(pathToFileURL(file).toString());
     }
     if (pathname === "/api/netease-playlist") {
@@ -152,9 +147,10 @@ if (singleInstance) app.whenReady().then(() => {
     pomodoroTimer = null;
   };
   const dataFile = path.join(userDataRoot, "user-data.json");
-  const storage = createStorage(dataFile, { journalPhotosDirectory, photoBoardDirectory });
+  const storage = createStorage(dataFile, { journalPhotosDirectory });
   ipcMain.on("storage:load", (event, key) => { event.returnValue = storage.load(key); });
   ipcMain.on("storage:save", (_event, key, value) => storage.save(key, value));
+  ipcMain.on("storage:remove", (_event, key) => { if (typeof key === "string" && key.startsWith("berry-")) storage.remove(key); });
   ipcMain.on("storage:initialize", (event, legacyData) => {
     event.returnValue = event.sender === window.webContents ? storage.initialize(legacyData) : storage.snapshot();
   });
@@ -265,29 +261,49 @@ if (singleInstance) app.whenReady().then(() => {
     cancelPomodoroTimer();
     if (pomodoroMiniWindow && !pomodoroMiniWindow.isDestroyed()) pomodoroMiniWindow.close();
   });
-  ipcMain.handle("photo-board:select", async (event) => {
-    if (event.sender !== window.webContents) return { status: "error", message: "无法读取当前照片" };
+  let plannerTimers = [];
+  const clearPlannerTimers = () => { plannerTimers.forEach((timer) => clearTimeout(timer)); plannerTimers = []; };
+  ipcMain.on("planner:reminders", (event, reminders) => {
+    if (event.sender !== window.webContents || !Array.isArray(reminders)) return;
+    clearPlannerTimers();
+    for (const reminder of reminders.slice(0, 40)) {
+      if (!reminder || !Number.isFinite(reminder.at) || typeof reminder.title !== "string") continue;
+      const delay = reminder.at - Date.now();
+      if (delay <= 0 || delay > 2_147_483_647) continue;
+      plannerTimers.push(setTimeout(() => {
+        const notification = new Notification({
+          title: reminder.title.slice(0, 80),
+          body: typeof reminder.body === "string" ? reminder.body.slice(0, 120) : "",
+          icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
+          silent: false,
+        });
+        notification.on("click", () => {
+          if (window.isDestroyed()) return;
+          if (window.isMinimized()) window.restore();
+          window.show();
+          window.focus();
+        });
+        notification.show();
+      }, delay));
+    }
+  });
+  window.on("closed", clearPlannerTimers);
+  // The player's DeepSeek API key lives outside user-data.json so backups and save migration never copy it.
+  const aiKeyFile = path.join(userDataRoot, "ai-key.bin");
+  const readAiKey = () => {
     try {
-      const result = await dialog.showOpenDialog(window, { title: "选择照片板照片", properties: ["openFile"], filters: [{ name: "照片", extensions: ["jpg", "jpeg", "png", "webp"] }] });
-      if (result.canceled || !result.filePaths[0]) return { status: "cancelled" };
-      const source = nativeImage.createFromPath(result.filePaths[0]);
-      if (source.isEmpty()) return { status: "error", message: "这张照片无法读取，请换一张试试" };
-      const size = source.getSize();
-      const longestSide = Math.max(size.width, size.height);
-      const image = longestSide > 2000 ? source.resize(size.width >= size.height ? { width: 2000, quality: "best" } : { height: 2000, quality: "best" }) : source;
-      const resizedSize = image.getSize();
-      const id = randomUUID();
-      const fileName = `board-${id}.jpg`;
-      fs.mkdirSync(photoBoardDirectory, { recursive: true });
-      fs.writeFileSync(path.join(photoBoardDirectory, fileName), image.toJPEG(88));
-      return { status: "selected", photo: { id, fileName, width: resizedSize.width, height: resizedSize.height } };
-    } catch (error) { return { status: "error", message: error instanceof Error ? error.message : "照片导入失败" }; }
+      const stored = fs.readFileSync(aiKeyFile);
+      return safeStorage.isEncryptionAvailable() ? safeStorage.decryptString(stored) : stored.toString("utf8");
+    } catch { return null; }
+  };
+  ipcMain.handle("ai-key:has", (event) => event.sender === window.webContents && Boolean(readAiKey()));
+  ipcMain.handle("ai-key:get", (event) => event.sender === window.webContents ? readAiKey() : null);
+  ipcMain.handle("ai-key:set", (event, key) => {
+    if (event.sender !== window.webContents || typeof key !== "string" || !key.trim() || key.length > 400) return;
+    const value = key.trim();
+    fs.writeFileSync(aiKeyFile, safeStorage.isEncryptionAvailable() ? safeStorage.encryptString(value) : Buffer.from(value, "utf8"));
   });
-  ipcMain.handle("photo-board:remove", (event, fileName) => {
-    if (event.sender !== window.webContents || !/^board-[0-9a-f-]{36}\.jpg$/i.test(fileName)) return false;
-    fs.rmSync(path.join(photoBoardDirectory, fileName), { force: true });
-    return true;
-  });
+  ipcMain.handle("ai-key:clear", (event) => { if (event.sender === window.webContents) fs.rmSync(aiKeyFile, { force: true }); });
 });
 
 app.on("window-all-closed", () => app.quit());

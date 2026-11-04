@@ -6,7 +6,6 @@ import vm from "node:vm";
 import ts from "typescript";
 import { getJournalStreak, localDate } from "../app/game/journal.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
-import { stablePhotoRotation } from "../app/game/photo-board/types.ts";
 
 const pageSource = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
 const pageAst = ts.createSourceFile("page.tsx", pageSource, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -67,26 +66,6 @@ function checkinHarness({ now = new Date(2026, 9, 9, 0, 1), history = [], deskto
     setNoteText: updateState(state, "noteText"), setToast: updateState(state, "toast"),
   });
   return { state, saveLock, persisted, submit: () => actions.checkIn({ preventDefault() {} }) };
-}
-
-function photoHarness({ preparePhotoFile, fetch, photos = [] } = {}) {
-  const state = { photos, uploadingPhotoId: null, photoUploadBusy: false, toast: "" };
-  const lock = { current: false };
-  const queuedPhotoUpdates = [];
-  const actions = loadPageFunctions(["nextPhotoBoardSlot", "addPhotoBoardPhoto", "uploadWebPhotoBoardPhoto"], {
-    deviceId: "device-a", photoBoardPhotos: photos, uploadingPhotoId: null, photoUploadLock: lock,
-    stablePhotoRotation, Date, FormData, preparePhotoFile, fetch,
-    window: { setTimeout() {} },
-    setPhotoBoardPhotos: (update) => queuedPhotoUpdates.push(update),
-    setUploadingPhotoId: updateState(state, "uploadingPhotoId"),
-    setPhotoUploadBusy: updateState(state, "photoUploadBusy"), setToast: updateState(state, "toast"),
-  });
-  return {
-    state, lock, actions,
-    flushPhotos() {
-      for (const update of queuedPhotoUpdates.splice(0)) updateState(state, "photos")(update);
-    },
-  };
 }
 
 function memoryCheckins(t) {
@@ -258,66 +237,4 @@ test("submitting after an unrecorded day starts a new streak", async () => {
   assert.equal(harness.state.game.streak, 1);
   assert.equal(harness.state.game.lastCheckin, "2026-10-10");
   assert.equal(harness.state.history[0].reward, 6);
-});
-
-test("photo slots are allocated from the current functional setter state", () => {
-  const harness = photoHarness();
-  harness.actions.addPhotoBoardPhoto({ id: "first", key: "first.jpg", width: 100, height: 100 });
-  harness.actions.addPhotoBoardPhoto({ id: "second", key: "second.jpg", width: 100, height: 100 });
-  harness.flushPhotos();
-  assert.deepEqual(Array.from(harness.state.photos, (photo) => photo.slot), [0, 1]);
-  assert.equal(new Set(harness.state.photos.map((photo) => photo.slot)).size, 2);
-  assert.equal(harness.actions.nextPhotoBoardSlot([{ slot: 0 }, { slot: 2 }]), 1);
-});
-
-test("photo upload locks synchronously while preparation and HTTP are pending", async () => {
-  const prepared = deferred();
-  let preparations = 0;
-  let requests = 0;
-  let uploadedForm;
-  const harness = photoHarness({
-    preparePhotoFile: () => { preparations += 1; return prepared.promise; },
-    fetch: async (_url, options) => {
-      requests += 1;
-      uploadedForm = options.body;
-      return { ok: true, json: async () => ({ photo: { id: "uploaded", key: "saved.jpg", width: 200, height: 100 } }) };
-    },
-  });
-  const pending = harness.actions.uploadWebPhotoBoardPhoto({ name: "first.png" });
-  assert.equal(harness.lock.current, true);
-  assert.equal(harness.state.photoUploadBusy, true);
-  await harness.actions.uploadWebPhotoBoardPhoto({ name: "second.png" });
-  assert.equal(preparations, 1);
-  assert.equal(requests, 0);
-  prepared.resolve({ blob: new Blob(["image"], { type: "image/jpeg" }), width: 200, height: 100 });
-  await pending;
-  harness.flushPhotos();
-  assert.equal(requests, 1);
-  assert.equal(uploadedForm.get("deviceId"), "device-a");
-  assert.equal(uploadedForm.get("width"), "200");
-  assert.equal(harness.state.photos.length, 1);
-  assert.equal(harness.state.photos[0].slot, 0);
-  assert.equal(harness.lock.current, false);
-  assert.equal(harness.state.photoUploadBusy, false);
-});
-
-test("photo upload failures unlock the next attempt", async () => {
-  let requests = 0;
-  const harness = photoHarness({
-    preparePhotoFile: async () => ({ blob: new Blob(["image"]), width: 100, height: 100 }),
-    fetch: async () => {
-      requests += 1;
-      return requests === 1 ? { ok: false } : { ok: true, json: async () => ({ photo: { id: "retry", key: "retry.jpg", width: 100, height: 100 } }) };
-    },
-  });
-  await harness.actions.uploadWebPhotoBoardPhoto({ name: "first.png" });
-  assert.equal(harness.lock.current, false);
-  assert.equal(harness.state.photoUploadBusy, false);
-  harness.flushPhotos();
-  assert.equal(harness.state.photos.length, 0);
-  await harness.actions.uploadWebPhotoBoardPhoto({ name: "retry.png" });
-  harness.flushPhotos();
-  assert.equal(requests, 2);
-  assert.equal(harness.state.photos.length, 1);
-  assert.equal(harness.lock.current, false);
 });

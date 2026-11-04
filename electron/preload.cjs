@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld("gameUpdater", {
   storage: {
     load: (key) => ipcRenderer.sendSync("storage:load", key),
     save: (key, value) => ipcRenderer.send("storage:save", key, value),
+    remove: (key) => ipcRenderer.send("storage:remove", key),
     snapshot: () => ipcRenderer.sendSync("storage:snapshot"),
     refreshCache: refreshStorageCache,
     exportBackup: () => ipcRenderer.invoke("storage:export"),
@@ -66,9 +67,14 @@ contextBridge.exposeInMainWorld("gameUpdater", {
       return () => ipcRenderer.removeListener("pomodoro:finished", listener);
     },
   },
-  photoBoard: {
-    select: () => ipcRenderer.invoke("photo-board:select"),
-    remove: (fileName) => ipcRenderer.invoke("photo-board:remove", fileName),
+  planner: {
+    scheduleReminders: (reminders) => ipcRenderer.send("planner:reminders", reminders),
+  },
+  aiKey: {
+    has: () => ipcRenderer.invoke("ai-key:has"),
+    get: () => ipcRenderer.invoke("ai-key:get"),
+    set: (key) => ipcRenderer.invoke("ai-key:set", key),
+    clear: () => ipcRenderer.invoke("ai-key:clear"),
   },
   pomodoroMini: {
     open: () => ipcRenderer.send("pomodoro-mini:open"),

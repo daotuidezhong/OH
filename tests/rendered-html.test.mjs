@@ -379,7 +379,9 @@ test("ships transparent eight-direction sprite sheets for every cat", async () =
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.match(source, /const stepDirection = getWalkDirection\(from, destination\)[\s\S]*setDirection\(stepDirection\)[\s\S]*from = point/);
   assert.match(source, /WALK_DIRECTION_ROW\[direction\]/);
-  assert.match(css, /\.cat-walk-sprite \{[^}]*background-size: 400% 800%/);
+  assert.match(source, /className="cat-walk-sheet" src=\{pet\.walkSheet\}/);
+  assert.match(css, /\.cat-walk-sprite \{[^}]*overflow: hidden/);
+  assert.match(css, /\.scene-cat \.cat-walk-sheet \{[^}]*width: 400%[^}]*height: 800%[^}]*translate\(calc\(var\(--walk-frame\) \* -25%\), calc\(var\(--walk-row\) \* -12\.5%\)\)/);
 });
 
 test("keeps the room vinyl static without the rotating fragment", async () => {
@@ -744,7 +746,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /rating: integer\("rating"\)[\s\S]*reward: integer\("reward"\)/);
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
-  assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory, photoBoardDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
+  assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
   assert.match(packageJson, /"version": "0\.9\.11"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
   assert.match(source, /RELEASE_VERSION = "0\.9\.11"[\s\S]*三只猫保持原始体型[\s\S]*version: "0\.9\.10"[\s\S]*桌面版照片板上传后显示破图[\s\S]*version: "0\.9\.9"/);
@@ -760,14 +762,15 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(source, /getWeatherIcon[\s\S]*weather === "clear" && period === "night" \? "🌙"[\s\S]*getWeatherIcon\(weather\.kind, timePeriod\)/);
   assert.match(source, /open-meteo[\s\S]*cache: "no-store"[\s\S]*5 \* 60 \* 1000[\s\S]*visibilitychange/);
   assert.match(source, /className="scene-context-home"[\s\S]*🏠[\s\S]*dock-record-icon[\s\S]*record-book[\s\S]*dock-bag-icon[\s\S]*bag-body[\s\S]*dock-shop-icon[\s\S]*🛒[\s\S]*dock-pets-icon[\s\S]*dock-paw-one[\s\S]*dock-decorate-icon[\s\S]*🪑/);
-  assert.match(css, /--hud-surface:[\s\S]*\.scene-context \{[^}]*border-radius: 22px[\s\S]*\.scene-context-home[^}]*Segoe UI Emoji[\s\S]*\.game-dock \.dock-icon[^}]*font-size: 24px/);
+  assert.match(css, /--hud-surface: #f1e1c3;[\s\S]*--hud-border: var\(--hud-wood-light\) var\(--hud-wood-dark\)[\s\S]*\.scene-context \{[^}]*border-radius: 5px[\s\S]*\.scene-context-home[^}]*Segoe UI Emoji[\s\S]*\.game-dock \.dock-icon[^}]*font-size: 24px/);
+  assert.match(css, /\.scene-context, \.hud-counters > div, \.pet-status, \.game-dock, \.decorate-tools \{[^}]*border: 3px solid;[^}]*background: var\(--hud-paper-grain\), var\(--hud-surface\);[^}]*box-shadow: var\(--hud-shadow\)/);
   for (const animation of ["dock-orange-ring", "dock-cart-roll", "dock-cart-wheel", "dock-paw-one", "dock-paw-two", "dock-chair-lift"]) assert.match(css, new RegExp(animation));
   assert.match(source, /record-book[\s\S]*closed-book[\s\S]*closed-book-cover[\s\S]*open-book[\s\S]*open-book-page-left[\s\S]*open-book-spine[\s\S]*bag-body[\s\S]*bag-inner[\s\S]*zipper-track-left[\s\S]*bag-content[\s\S]*dock-paw-one[\s\S]*dock-paw-two/);
   assert.match(css, /\.closed-book, \.open-book \{[^}]*transition: transform 390ms[\s\S]*button:is\(:hover, :focus-visible\) \.closed-book \{[^}]*opacity: 0[\s\S]*button:is\(:hover, :focus-visible\) \.open-book \{[^}]*opacity: 1/);
   assert.match(css, /\.bag-zipper \{[^}]*transition: transform 180ms[\s\S]*button:is\(:hover, :focus-visible\) \.bag-zipper \{[^}]*translateX\(8px\)/);
   assert.doesNotMatch(css, /animation: dock-(?:book|bag|zipper)/);
   assert.doesNotMatch(source, /dock-paw-step|dock-pets-icon[^\n]*🐾/);
-  assert.match(css, /\.game-dock button:hover \{[^}]*background: rgba\(239, 201, 137, \.2\)[^}]*\}/);
+  assert.match(css, /\.game-dock button:hover \{[^}]*background: #ecd8b2[^}]*\}/);
   assert.doesNotMatch(css, /\.game-dock button:hover \{[^}]*transform:/);
   assert.doesNotMatch(source, /添加一张照片|journal-photo-field|selectJournalPhoto|selectWebJournalPhoto/);
   assert.doesNotMatch(source, /\/api\/journal-photos[\s\S]*photoData/);
@@ -780,44 +783,35 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(preload, /journalPhotos:[\s\S]*journal-photo:select[\s\S]*journal-photo:remove/);
 });
 
-test("adds a persistent continuous photo board without changing room, yard, or weather semantics", async () => {
+test("replaces the photo board with a wall planner without changing room, yard, or weather semantics", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  const overlay = await readFile(new URL("../app/game/photo-board/PhotoBoardOverlay.tsx", import.meta.url), "utf8");
-  const scrollbar = await readFile(new URL("../app/game/photo-board/PhotoBoardScrollbar.tsx", import.meta.url), "utf8");
-  const types = await readFile(new URL("../app/game/photo-board/types.ts", import.meta.url), "utf8");
-  const wall = await readFile(new URL("../app/game/photo-board/PhotoBoardWall.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/game/planner/planner.css", import.meta.url), "utf8");
+  const globalCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const wall = await readFile(new URL("../app/game/planner/PlannerWall.tsx", import.meta.url), "utf8");
+  const overlay = await readFile(new URL("../app/game/planner/PlannerOverlay.tsx", import.meta.url), "utf8");
   const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
   const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
-  assert.match(source, /game\.scene === "room" && <PhotoBoardWall/);
-  assert.match(wall, /className="scene-photo-board-art"[\s\S]*photo-board-scene-v2\.png[\s\S]*className="photo-board-hotspot"/);
-  assert.match(wall, /getSceneThumbnailShape[\s\S]*ratio < \.8[\s\S]*ratio > 1\.25/);
-  assert.match(wall, /canvasRef[\s\S]*imageSmoothingEnabled = false[\s\S]*scene-photo-thumb/);
-  assert.match(wall, /scene-photo-row-\$\{position\.row\}[\s\S]*scene-photo-board-inner/);
-  assert.match(css, /\.scene-photo-board-inner \{[^}]*inset: 10% 8% 11%[^}]*overflow: hidden/);
-  assert.match(css, /\.scene-photo-slot\.scene-photo-row-0 \{[^}]*top: 26%[^}]*height: 30%[\s\S]*\.scene-photo-slot\.scene-photo-row-1 \{[^}]*top: 62%[^}]*height: 32%/);
-  assert.match(css, /\.scene-photo-thumb\.portrait[^}]*aspect-ratio: 3 \/ 4[\s\S]*\.scene-photo-thumb\.square[^}]*aspect-ratio: 1[\s\S]*\.scene-photo-thumb\.landscape[^}]*aspect-ratio: 4 \/ 3/);
-  assert.match(css, /\.scene-photo-board \{[^}]*position: absolute[^}]*left: 88\.15%[^}]*width: clamp\([^}]*13\.6%/);
-  assert.match(css, /\.scene-photo-board-art \{[^}]*filter: var\(--scene-lighting\) drop-shadow/);
-  assert.match(css, /\.scene-photo-board\.is-open \.scene-photo-board-art \{[^}]*opacity: 0/);
-  assert.doesNotMatch(css, /\.photo-board-wall \{/);
-  assert.doesNotMatch(source, /scene\s*=\s*["']photoBoard|scene:\s*["']photoBoard/);
+  assert.match(source, /game\.scene === "room" && <PlannerWall/);
+  assert.match(source, /PLANNER_STORAGE_KEY[\s\S]*writePersisted\(PLANNER_STORAGE_KEY/);
+  assert.match(source, /readPersisted\(LEGACY_PHOTO_BOARD_KEY\) !== null\) removePersisted\(LEGACY_PHOTO_BOARD_KEY\)/);
+  assert.doesNotMatch(source, /PhotoBoard|photo-board-photos/);
+  assert.doesNotMatch(globalCss, /scene-photo-board|photo-board-overlay|photo-viewer/);
+  assert.match(css, /\.scene-planner \{[^}]*position: absolute[^}]*left: 88\.15%[^}]*width: clamp\([^}]*13\.6%/);
+  assert.match(css, /\.scene-planner-art \{[^}]*image-rendering: pixelated[^}]*filter: var\(--scene-lighting\)/);
+  assert.match(css, /\.scene-planner\.is-open \.scene-planner-art \{[^}]*opacity: 0/);
+  assert.match(wall, /ART_WIDTH = 96[\s\S]*ART_HEIGHT = 58[\s\S]*createImageData\(ART_WIDTH, ART_HEIGHT\)/);
+  assert.match(wall, /WALL_BARS_PER_SLOT = 2[\s\S]*slotItems\.slice\(0, WALL_BARS_PER_SLOT\)[\s\S]*slotItems\.length > shown\.length/);
+  assert.match(overlay, /CELL_VISIBLE_CARDS = 3[\s\S]*展开另外 \{items\.length - shown\.length\} 项/);
+  assert.match(overlay, /data-planner-drop="trash"[\s\S]*data-planner-drop="folder"/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.planner-confetti \{ display: none; \}/);
+  assert.doesNotMatch(source, /scene\s*=\s*["']planner|scene:\s*["']planner/);
   assert.match(source, /open-meteo[\s\S]*5 \* 60 \* 1000[\s\S]*addEventListener\("focus"[\s\S]*addEventListener\("online"[\s\S]*visibilitychange/);
   assert.match(source, /weather === "clear" && period === "night" \? "🌙"/);
-  assert.match(source, /PHOTO_BOARD_STORAGE_KEY[\s\S]*writePersisted\(PHOTO_BOARD_STORAGE_KEY/);
-  assert.match(overlay, /overflow-x: auto|photo-board-viewport/);
-  assert.match(overlay, /key=\{photo\.id\}/);
-  assert.match(scrollbar, /viewport\.scrollLeft[\s\S]*setPointerCapture[\s\S]*releasePointerCapture/);
-  assert.match(types, /stablePhotoRotation[\s\S]*Math\.abs\(hash\)/);
-  assert.match(types, /caption\?: string[\s\S]*typeof photo\.caption === "string" \? photo\.caption : ""/);
-  assert.match(source, /updatePhotoBoardCaption[\s\S]*caption[\s\S]*onUpdateCaption=\{updatePhotoBoardCaption\}/);
-  assert.match(overlay, /maxLength=\{80\}[\s\S]*添加说明…/);
-  assert.doesNotMatch(css, /scroll-snap/);
-  assert.match(css, /photo-board-slot\.deleting[\s\S]*board-photo-drop/);
-  assert.match(source, /setDeletingPhotoId\(photo\.id\)[\s\S]*setTimeout\(async \(\) =>[\s\S]*current\.filter/);
-  assert.match(electronMain, /protocol\.handle\("berry"[\s\S]*url\.hostname === "photo-board"[\s\S]*photoBoardDirectory[\s\S]*const window = new BrowserWindow/);
-  assert.match(electronMain, /photo-board-photos[\s\S]*photo-board:select[\s\S]*photo-board:remove/);
-  assert.match(preload, /photoBoard:[\s\S]*photo-board:select[\s\S]*photo-board:remove/);
+  assert.match(electronMain, /fs\.rmSync\(path\.join\(userDataRoot, "photo-board-photos"\)/);
+  assert.doesNotMatch(electronMain, /photo-board:select|url\.hostname === "photo-board"/);
+  assert.match(electronMain, /planner:reminders[\s\S]*new Notification/);
+  assert.match(preload, /planner: \{[\s\S]*planner:reminders/);
+  assert.match(preload, /remove: \(key\) => ipcRenderer\.send\("storage:remove", key\)/);
 });
 
 test("preserves the previous desktop save and recovers from a damaged primary file", async () => {
@@ -844,43 +838,36 @@ test("moves the complete Windows save into macOS and preserves the replaced Mac 
   const macDataFile = join(directory, "mac", "user-data.json");
   const windowsPhotos = join(directory, "windows", "journal-photos");
   const macPhotos = join(directory, "mac", "journal-photos");
-  const windowsBoardPhotos = join(directory, "windows", "photo-board-photos");
-  const macBoardPhotos = join(directory, "mac", "photo-board-photos");
   const photoFile = "journal-11111111-1111-4111-8111-111111111111.jpg";
-  const boardPhotoFile = "board-33333333-3333-4333-8333-333333333333.jpg";
   const photoBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0xff, 0xd9]);
   const windowsGame = JSON.stringify({ gameSchemaVersion: 8, berries: 888, pet: "xueqiu", pomodoro: { totalCycles: 12 } });
   const windowsHistory = JSON.stringify([{ id: 7, date: "2026-08-26", content: "Windows 迁移记录", category: "工作", rating: 9, reward: 18, photo: { fileName: photoFile, width: 1200, height: 800 } }]);
   try {
     await mkdir(windowsPhotos, { recursive: true });
     await writeFile(join(windowsPhotos, photoFile), photoBytes);
-    await mkdir(windowsBoardPhotos, { recursive: true });
-    await writeFile(join(windowsBoardPhotos, boardPhotoFile), photoBytes);
-    const windowsStorage = createStorage(windowsDataFile, { journalPhotosDirectory: windowsPhotos, photoBoardDirectory: windowsBoardPhotos });
+    const windowsStorage = createStorage(windowsDataFile, { journalPhotosDirectory: windowsPhotos });
     windowsStorage.save("berry-workout-game", windowsGame);
     windowsStorage.save("berry-workout-history", windowsHistory);
     windowsStorage.save("berry-workout-device", "windows-device-id");
-    const windowsBoard = JSON.stringify([{ id: "33333333-3333-4333-8333-333333333333", fileName: boardPhotoFile, width: 900, height: 1200, slot: 0, rotation: -.8, caption: "从 Windows 带到 Mac 的照片说明", createdAt: "2026-09-20T00:00:00.000Z" }]);
-    windowsStorage.save("berry-photo-board", windowsBoard);
+    const windowsPlanner = JSON.stringify({ version: 1, semesterStart: "2026-08-31", courses: [{ id: "english", title: "大学英语（一）", weekday: 1, startTime: "14:10", endTime: "15:45" }] });
+    windowsStorage.save("berry-planner", windowsPlanner);
     const payload = windowsStorage.exportPayload({ sourcePlatform: "win32", appVersion: "0.9.0" });
 
     assert.equal(payload.format, "oh-user-data");
     assert.equal(payload.version, 3);
     assert.equal(payload.sourcePlatform, "win32");
     assert.deepEqual(Buffer.from(payload.assets.journalPhotos[photoFile], "base64"), photoBytes);
-    assert.deepEqual(Buffer.from(payload.assets.photoBoardPhotos[boardPhotoFile], "base64"), photoBytes);
 
     await mkdir(macPhotos, { recursive: true });
     await writeFile(join(macPhotos, "journal-22222222-2222-4222-8222-222222222222.jpg"), "old-mac-photo");
-    const macStorage = createStorage(macDataFile, { journalPhotosDirectory: macPhotos, photoBoardDirectory: macBoardPhotos });
+    const macStorage = createStorage(macDataFile, { journalPhotosDirectory: macPhotos });
     macStorage.save("berry-workout-game", JSON.stringify({ berries: 3 }));
     const importedKeys = macStorage.importPayload(JSON.parse(JSON.stringify(payload)));
-    assert.deepEqual(importedKeys.sort(), ["berry-photo-board", "berry-workout-device", "berry-workout-game", "berry-workout-history"]);
+    assert.deepEqual(importedKeys.sort(), ["berry-planner", "berry-workout-device", "berry-workout-game", "berry-workout-history"]);
     assert.equal(macStorage.load("berry-workout-game"), windowsGame);
     assert.equal(macStorage.load("berry-workout-history"), windowsHistory);
-    assert.equal(macStorage.load("berry-photo-board"), windowsBoard);
+    assert.equal(macStorage.load("berry-planner"), windowsPlanner);
     assert.deepEqual(await readFile(join(macPhotos, photoFile)), photoBytes);
-    assert.deepEqual(await readFile(join(macBoardPhotos, boardPhotoFile)), photoBytes);
     assert.ok((await readdir(join(directory, "mac"))).some((file) => file.startsWith("user-data.pre-import-")));
     assert.ok((await readdir(join(directory, "mac"))).some((file) => file.startsWith("journal-photos.pre-import-")));
     assert.throws(() => macStorage.importPayload({ format: "other", version: 1, data: payload.data }), /可识别的 OH 备份/);

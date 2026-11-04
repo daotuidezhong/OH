@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { mkdtemp, readFile, readdir, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -164,17 +164,13 @@ test("the first preload migrates legacy cache once and prefers existing disk val
 test("an older backup replaces cache and missing keys stay missing after restart or recovery", async () => {
   const directory = await mkdtemp(join(tmpdir(), "oh-import-cache-"));
   const dataFile = join(directory, "user-data.json");
-  const photosDirectory = join(directory, "photo-board-photos");
-  const photoName = "board-33333333-3333-4333-8333-333333333333.jpg";
   const oldGame = '{"berries":88}';
   try {
-    await mkdir(photosDirectory);
-    await writeFile(join(photosDirectory, photoName), "previous photo");
-    const storage = createStorage(dataFile, { photoBoardDirectory: photosDirectory });
+    const storage = createStorage(dataFile);
     const cache = localCache({
       "berry-workout-game": oldGame,
       "berry-workout-history": '[{"content":"old diary"}]',
-      "berry-photo-board": JSON.stringify([{ fileName: photoName }]),
+      "berry-photo-board": "[]",
       unrelated: "preserve",
     });
     const { api } = loadPreload(storage, cache);
@@ -185,13 +181,10 @@ test("an older backup replaces cache and missing keys stay missing after restart
     assert.equal(cache.getItem("berry-workout-history"), null);
     assert.equal(cache.getItem("berry-photo-board"), null);
     assert.equal(cache.getItem("unrelated"), "preserve");
-    assert.deepEqual(await readdir(photosDirectory), []);
     const files = await readdir(directory);
     const preImportFile = files.find((name) => name.startsWith("user-data.pre-import-"));
     assert.ok(preImportFile);
     assert.equal(JSON.parse(await readFile(join(directory, preImportFile), "utf8"))["berry-workout-game"], oldGame);
-    const photoBackup = files.find((name) => name.startsWith("photo-board-photos.pre-import-"));
-    assert.equal(await readFile(join(directory, photoBackup, photoName), "utf8"), "previous photo");
     // Even if the cache refresh was interrupted, imported data forbids re-migration.
     cache.setItem("berry-photo-board", "[]");
     loadPreload(createStorage(dataFile), cache);
@@ -263,5 +256,26 @@ test("unavailable localStorage preserves the bridge and does not consume legacy 
     assert.doesNotThrow(() => api.storage.refreshCache());
     loadPreload(storage, localCache({ "berry-workout-game": '{"berries":22}' }));
     assert.equal(storage.load("berry-workout-game"), '{"berries":22}');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("backups from the photo board era still import and drop the retired board", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "oh-import-board-"));
+  const dataFile = join(directory, "user-data.json");
+  try {
+    const storage = createStorage(dataFile);
+    const photo = Buffer.from([0xff, 0xd8, 1, 2, 0xff, 0xd9]).toString("base64");
+    const keys = storage.importPayload({
+      format: "oh-user-data", version: 3,
+      data: { "berry-workout-game": '{"berries":5}', "berry-photo-board": JSON.stringify([{ fileName: "board-33333333-3333-4333-8333-333333333333.jpg" }]) },
+      assets: { journalPhotos: {}, photoBoardPhotos: { "board-33333333-3333-4333-8333-333333333333.jpg": photo } },
+    });
+    assert.deepEqual(keys, ["berry-workout-game"]);
+    assert.equal(storage.load("berry-photo-board"), null);
+    assert.equal(storage.exportPayload().assets.photoBoardPhotos, undefined);
+    storage.save("berry-planner", "{}");
+    storage.remove("berry-planner");
+    assert.equal(storage.load("berry-planner"), null);
+    assert.equal(storage.load("berry-workout-game"), '{"berries":5}');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
