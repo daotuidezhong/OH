@@ -2,6 +2,15 @@ name: Build desktop installers
 
 on:
   workflow_dispatch:
+    inputs:
+      release_run_id:
+        description: Reuse validated installer artifacts from this run (empty builds macOS only)
+        type: string
+        default: ''
+      release_commit:
+        description: Exact commit of the release artifacts being resumed
+        type: string
+        default: ''
   push:
     branches: [codex/macos-data-migration, codex/orange-focus-update, codex/next-update-v0.9.9, codex/calendar-planner]
 
@@ -13,6 +22,7 @@ jobs:
     uses: ./.github/workflows/validate.yml
 
   build-macos:
+    if: github.event_name != 'workflow_dispatch' || inputs.release_run_id == ''
     runs-on: macos-15
     strategy:
       matrix:
@@ -53,29 +63,49 @@ jobs:
           if-no-files-found: error
 
   publish-release:
-    if: github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Publish v')
+    if: >-
+      always() &&
+      ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Publish v') &&
+        needs.validate-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success') ||
+       (github.event_name == 'workflow_dispatch' && inputs.release_run_id != '' && inputs.release_commit != ''))
     needs: [validate-release, build-macos, build-windows]
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      actions: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_commit || github.sha }}
+      - name: Verify source build run
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ inputs.release_run_id }}
+          RELEASE_SHA: ${{ inputs.release_commit }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}" > source-run.json
+          gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}/jobs?per_page=100" > source-jobs.json
+          node --input-type=module -e 'import fs from "node:fs"; const run = JSON.parse(fs.readFileSync("source-run.json", "utf8")); const { jobs } = JSON.parse(fs.readFileSync("source-jobs.json", "utf8")); if (run.head_sha !== process.env.RELEASE_SHA || ["validate-release / validate", "build-macos (arm64)", "build-macos (x64)", "build-windows"].some(name => !jobs.some(job => job.name === name && job.conclusion === "success"))) throw new Error("Source artifacts do not have successful validation and all three builds for this commit");'
       - uses: actions/download-artifact@v4
         with:
           path: release-assets
           merge-multiple: true
+          run-id: ${{ inputs.release_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.release_commit || github.sha }}
         run: |
           version=$(node -p "require('./package.json').version")
           node build/verify-release.mjs release-assets
           if gh release view "v${version}" --json isDraft,targetCommitish > release-state.json; then
-            node --input-type=module -e 'import fs from "node:fs"; const release = JSON.parse(fs.readFileSync("release-state.json", "utf8")); if (!release.isDraft || release.targetCommitish !== process.env.GITHUB_SHA) throw new Error("Refusing to overwrite an existing release or another commit");'
+            node --input-type=module -e 'import fs from "node:fs"; const release = JSON.parse(fs.readFileSync("release-state.json", "utf8")); if (!release.isDraft || release.targetCommitish !== process.env.RELEASE_SHA) throw new Error("Refusing to overwrite an existing release or another commit");'
           else
-            gh release create "v${version}" --draft --target "$GITHUB_SHA" --title "OH v${version}" --notes-file "docs/releases/v${version}.md"
+            gh release create "v${version}" --draft --target "$RELEASE_SHA" --title "OH v${version}" --notes-file "docs/releases/v${version}.md"
           fi
           gh release upload "v${version}" release-assets/* --clobber
-          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${version}" > uploaded-release.json
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" --jq ".[] | select(.tag_name == \"v${version}\")" > uploaded-release.json
           node build/verify-release.mjs release-assets uploaded-release.json
           gh release edit "v${version}" --draft=false --latest --notes-file "docs/releases/v${version}.md"
