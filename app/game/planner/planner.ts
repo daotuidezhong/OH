@@ -208,7 +208,8 @@ export function courseOccurrences(state: Pick<PlannerState, "courses" | "courseE
   const items: PlannerItem[] = [];
   for (const course of state.courses) {
     for (const date of dates) {
-      if (weekdayOf(date) !== course.weekday || !courseRunsInWeek(course, getTeachingWeek(date, state.semesterStart))) continue;
+      const week = getTeachingWeek(date, state.semesterStart);
+      if (weekdayOf(date) !== course.weekday || (state.semesterStart && week === null) || !courseRunsInWeek(course, week)) continue;
       const exception = exceptions.get(occurrenceKey(course.id, date));
       if (exception?.skip || exception?.moved) continue;
       items.push(courseItem(course, date, date, course.startTime, course.endTime));

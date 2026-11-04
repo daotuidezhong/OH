@@ -299,6 +299,7 @@
   .planner-header { gap: 6px; }
   .planner-range, .planner-button-label { display: none; }
   .planner-grid { grid-template-columns: 40px minmax(0, 1fr); }
+  .planner-empty { width: calc(100% - 24px); white-space: normal; text-align: center; }
   .planner-day-head { display: none; }
   .planner-corner { display: none; }
   .planner-slot-label { grid-column: 1; }

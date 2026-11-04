@@ -3,7 +3,7 @@ name: Build desktop installers
 on:
   workflow_dispatch:
   push:
-    branches: [codex/macos-data-migration, codex/orange-focus-update, codex/next-update-v0.9.9]
+    branches: [codex/macos-data-migration, codex/orange-focus-update, codex/next-update-v0.9.9, codex/calendar-planner]
 
 jobs:
   validate-release:
@@ -76,4 +76,6 @@ jobs:
             gh release create "v${version}" --draft --target "$GITHUB_SHA" --title "OH v${version}" --notes-file "docs/releases/v${version}.md"
           fi
           gh release upload "v${version}" release-assets/* --clobber
+          gh api "repos/${GITHUB_REPOSITORY}/releases/tags/v${version}" > uploaded-release.json
+          node build/verify-release.mjs release-assets uploaded-release.json
           gh release edit "v${version}" --draft=false --latest --notes-file "docs/releases/v${version}.md"

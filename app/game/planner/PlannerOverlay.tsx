@@ -219,7 +219,7 @@ function PlannerBook({ origin, planner, today, now, onChange, onClose, onComplet
     later(() => setSwallowing(false), 720);
     later(() => setConfetti(null), 1900);
     const reward = onCompleteTask(item.id);
-    say({ text: reward ? `完成「${item.title}」！获得 🍓 ${reward}` : `完成「${item.title}」！今天的任务奖励已经领满`, journalTitle: item.title, undo: (current) => restoreTask(current, item.id) });
+    say({ text: reward ? `完成「${item.title}」！获得 🍓 ${reward}` : `完成「${item.title}」！${planner.tasks.find((task) => task.id === item.id)?.rewarded ? "这项任务已领取过奖励" : "今天的任务奖励已经领满"}`, journalTitle: item.title, undo: (current) => restoreTask(current, item.id) });
   };
 
   const drop = (item: PlannerItem, target: DropTarget | null) => {

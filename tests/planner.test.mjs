@@ -41,6 +41,8 @@ test("courses respect week ranges and odd or even weeks", () => {
   assert.deepEqual(courseOccurrences(semester, week11).map((item) => item.id), ["english"]);
   const afterTerm = weekDates("2026-12-21", 1);
   assert.deepEqual(courseOccurrences(semester, afterTerm), []);
+  assert.deepEqual(courseOccurrences(semester, weekDates("2026-08-24", 1)), []);
+  assert.deepEqual(upcomingReminders(semester, new Date("2026-08-24T07:00:00").getTime()), []);
   const noSemester = { ...semester, semesterStart: null };
   assert.equal(courseOccurrences(noSemester, week11).length, 2);
 });

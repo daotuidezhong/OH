@@ -24,4 +24,20 @@ assert.equal(hashes.length, 2, "Expected both update hashes");
 for (const expected of hashes) assert.equal(digest, expected, "Update installer hash mismatch");
 const blockmap = JSON.parse(gunzipSync(await readFile(path.join(directory, `${installer}.blockmap`))));
 assert.ok(blockmap.files?.length > 0 && blockmap.files.every((file) => file.checksums?.length > 0 && file.checksums.length === file.sizes?.length), "Invalid differential update blockmap");
+if (process.argv[3]) {
+  const release = JSON.parse(await readFile(process.argv[3], "utf8"));
+  assert.equal(release.tag_name, `v${version}`, "Uploaded release version mismatch");
+  assert.equal(release.draft, true, "Uploaded release must remain a draft during verification");
+  assert.equal(release.assets?.length, artifacts.length, "Uploaded release asset count mismatch");
+  for (const artifact of artifacts) {
+    const asset = release.assets.find((item) => item.name === artifact);
+    assert.ok(asset, `Missing uploaded release asset: ${artifact}`);
+    assert.equal(asset.state, "uploaded", `Incomplete uploaded release asset: ${artifact}`);
+    assert.equal(asset.size, (await stat(path.join(directory, artifact))).size, `Uploaded release asset size mismatch: ${artifact}`);
+    const sha256 = createHash("sha256");
+    for await (const chunk of createReadStream(path.join(directory, artifact))) sha256.update(chunk);
+    assert.equal(asset.digest, `sha256:${sha256.digest("hex")}`, `Uploaded release asset hash mismatch: ${artifact}`);
+  }
+  console.log("Verified uploaded draft: all asset sizes and GitHub SHA-256 digests match");
+}
 console.log(`Verified v${version}: all ${artifacts.length} assets, update paths, size, SHA-512 and differential blockmap`);
