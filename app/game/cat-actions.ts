@@ -9,7 +9,10 @@ export type CatStatusId =
   | "low-low"
   | "low-medium"
   | "low-high";
-export type CatPose = "idle" | "walk" | "groom" | "yawn" | "sleep" | "wake";
+export type CatPose = "idle" | "walk" | "groom" | "yawn" | "sleep" | "wake" | "scratch";
+// Poses a cat may hold while standing still. Walk frames only play while the cat
+// actually travels; reusing them in place made it look like it walked on air.
+export type CatStatusPose = Exclude<CatPose, "walk">;
 export type CatAnimationFrame = {
   pose: CatPose;
   frame?: 0 | 1 | 2 | 3;
@@ -18,146 +21,142 @@ export type CatAnimationFrame = {
   y?: number;
 };
 
+// Every duration is a whole number of ticks so the frame rhythm stays even.
+export const CAT_ANIMATION_TICK_MS = 90;
+const t = (ticks: number) => ticks * CAT_ANIMATION_TICK_MS;
+
+// scratch frames: 0 sit, 1 reach forward, 2 crouch low, 3 sit and look.
 export const CAT_STATUS_ANIMATIONS: Record<CatStatusId, { name: string; frames: CatAnimationFrame[] }> = {
   "high-low": {
-    name: "蓄力轻扑",
+    name: "蓄力扑爪",
     frames: [
-      { pose: "idle", duration: 260 },
-      { pose: "walk", frame: 0, duration: 150, y: 1 },
-      { pose: "walk", frame: 1, duration: 120, x: 2, y: 1 },
-      { pose: "walk", frame: 2, duration: 110, x: 6, y: -3 },
-      { pose: "walk", frame: 3, duration: 130, x: 12, y: -10 },
-      { pose: "walk", frame: 2, duration: 140, x: 16, y: -3 },
-      { pose: "walk", frame: 1, duration: 160, x: 11 },
-      { pose: "walk", frame: 0, duration: 180, x: 5 },
-      { pose: "idle", duration: 360 },
+      { pose: "idle", duration: t(3) },
+      { pose: "scratch", frame: 0, duration: t(2) },
+      { pose: "scratch", frame: 2, duration: t(3) },
+      { pose: "scratch", frame: 2, duration: t(2), y: 1 },
+      { pose: "scratch", frame: 2, duration: t(2) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 2, duration: t(2) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 3, duration: t(4) },
+      { pose: "idle", duration: t(4) },
     ],
   },
   "high-medium": {
     name: "玩闹后哈欠",
     frames: [
-      { pose: "idle", duration: 220 },
-      { pose: "walk", frame: 0, duration: 140, x: -2 },
-      { pose: "walk", frame: 1, duration: 120, x: 2 },
-      { pose: "walk", frame: 2, duration: 120, x: 6 },
-      { pose: "walk", frame: 3, duration: 150, x: 2 },
-      { pose: "idle", duration: 220 },
-      { pose: "yawn", frame: 0, duration: 220 },
-      { pose: "yawn", frame: 1, duration: 220 },
-      { pose: "yawn", frame: 2, duration: 260 },
-      { pose: "yawn", frame: 3, duration: 420 },
-      { pose: "yawn", frame: 2, duration: 260 },
-      { pose: "yawn", frame: 1, duration: 220 },
-      { pose: "yawn", frame: 0, duration: 220 },
-      { pose: "idle", duration: 280 },
-      { pose: "walk", frame: 1, duration: 140, x: 2 },
-      { pose: "walk", frame: 2, duration: 130, x: 5 },
-      { pose: "walk", frame: 1, duration: 150, x: 2 },
-      { pose: "idle", duration: 340 },
+      { pose: "idle", duration: t(3) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 2, duration: t(2) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 3, duration: t(3) },
+      { pose: "idle", duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(2) },
+      { pose: "yawn", frame: 1, duration: t(2) },
+      { pose: "yawn", frame: 2, duration: t(3) },
+      { pose: "yawn", frame: 3, duration: t(5) },
+      { pose: "yawn", frame: 2, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(2) },
+      { pose: "yawn", frame: 0, duration: t(2) },
+      { pose: "idle", duration: t(4) },
     ],
   },
   "high-high": {
-    name: "困过头追尾",
+    name: "扑空犯困",
     frames: [
-      { pose: "idle", duration: 180 },
-      { pose: "walk", frame: 0, duration: 100, x: -4 },
-      { pose: "walk", frame: 1, duration: 90 },
-      { pose: "walk", frame: 2, duration: 90, x: 4 },
-      { pose: "walk", frame: 3, duration: 100 },
-      { pose: "walk", frame: 0, duration: 110, x: -4 },
-      { pose: "walk", frame: 1, duration: 100 },
-      { pose: "walk", frame: 2, duration: 110, x: 4 },
-      { pose: "walk", frame: 3, duration: 150, x: 1 },
-      { pose: "yawn", frame: 0, duration: 220, x: 1 },
-      { pose: "yawn", frame: 1, duration: 250, x: -1 },
-      { pose: "yawn", frame: 0, duration: 230, x: 1 },
-      { pose: "yawn", frame: 0, duration: 280 },
-      { pose: "yawn", frame: 0, duration: 240 },
-      { pose: "idle", duration: 420 },
+      { pose: "idle", duration: t(2) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 2, duration: t(2) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 3, duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3), y: 1 },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "idle", duration: t(5) },
     ],
   },
   "medium-low": {
-    name: "抬爪巡视",
+    name: "抬爪张望",
     frames: [
-      { pose: "idle", duration: 420 },
-      { pose: "walk", frame: 0, duration: 260 },
-      { pose: "walk", frame: 1, duration: 280, x: 2 },
-      { pose: "walk", frame: 2, duration: 280, x: 4 },
-      { pose: "walk", frame: 3, duration: 280, x: 6 },
-      { pose: "groom", frame: 0, duration: 360, x: 4 },
-      { pose: "groom", frame: 1, duration: 340, x: 3 },
-      { pose: "groom", frame: 0, duration: 360, x: 2 },
-      { pose: "idle", duration: 520 },
+      { pose: "idle", duration: t(5) },
+      { pose: "scratch", frame: 3, duration: t(5) },
+      { pose: "idle", duration: t(3) },
+      { pose: "groom", frame: 0, duration: t(4) },
+      { pose: "groom", frame: 1, duration: t(4) },
+      { pose: "groom", frame: 0, duration: t(4) },
+      { pose: "idle", duration: t(6) },
     ],
   },
   "medium-medium": {
     name: "洗脸伸懒腰",
     frames: [
-      { pose: "idle", duration: 320 },
-      { pose: "groom", frame: 0, duration: 260 },
-      { pose: "groom", frame: 1, duration: 240 },
-      { pose: "groom", frame: 2, duration: 230 },
-      { pose: "groom", frame: 3, duration: 260 },
-      { pose: "groom", frame: 2, duration: 230 },
-      { pose: "groom", frame: 1, duration: 240 },
-      { pose: "groom", frame: 0, duration: 260 },
-      { pose: "idle", duration: 280 },
-      { pose: "yawn", frame: 0, duration: 260 },
-      { pose: "yawn", frame: 1, duration: 260 },
-      { pose: "yawn", frame: 2, duration: 280 },
-      { pose: "yawn", frame: 3, duration: 360 },
-      { pose: "yawn", frame: 2, duration: 280 },
-      { pose: "yawn", frame: 1, duration: 260 },
-      { pose: "yawn", frame: 0, duration: 260 },
-      { pose: "idle", duration: 440 },
+      { pose: "idle", duration: t(4) },
+      { pose: "groom", frame: 0, duration: t(3) },
+      { pose: "groom", frame: 1, duration: t(3) },
+      { pose: "groom", frame: 2, duration: t(3) },
+      { pose: "groom", frame: 3, duration: t(3) },
+      { pose: "groom", frame: 2, duration: t(3) },
+      { pose: "groom", frame: 1, duration: t(3) },
+      { pose: "groom", frame: 0, duration: t(3) },
+      { pose: "idle", duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 2, duration: t(3) },
+      { pose: "yawn", frame: 3, duration: t(4) },
+      { pose: "yawn", frame: 2, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "idle", duration: t(5) },
     ],
   },
   "medium-high": {
     name: "点头惊醒",
     frames: [
-      { pose: "idle", duration: 460 },
-      { pose: "yawn", frame: 0, duration: 360, y: 1 },
-      { pose: "yawn", frame: 1, duration: 420, y: 2 },
-      { pose: "yawn", frame: 0, duration: 360, y: 3 },
-      { pose: "yawn", frame: 0, duration: 420, x: -2, y: 1 },
-      { pose: "idle", duration: 170, x: 2 },
-      { pose: "idle", duration: 360 },
-      { pose: "yawn", frame: 0, duration: 400, y: 1 },
-      { pose: "yawn", frame: 0, duration: 440, x: 1, y: 2 },
-      { pose: "idle", duration: 500 },
+      { pose: "idle", duration: t(5) },
+      { pose: "yawn", frame: 0, duration: t(4) },
+      { pose: "yawn", frame: 1, duration: t(5), y: 1 },
+      { pose: "yawn", frame: 0, duration: t(4), y: 1 },
+      { pose: "yawn", frame: 0, duration: t(5) },
+      { pose: "scratch", frame: 3, duration: t(2) },
+      { pose: "idle", duration: t(4) },
+      { pose: "yawn", frame: 0, duration: t(4), y: 1 },
+      { pose: "yawn", frame: 0, duration: t(5) },
+      { pose: "idle", duration: t(6) },
     ],
   },
   "low-low": {
     name: "安静观察",
     frames: [
-      { pose: "idle", duration: 1200 },
-      { pose: "groom", frame: 0, duration: 440, x: 1 },
-      { pose: "idle", duration: 900 },
-      { pose: "groom", frame: 1, duration: 360, x: 1 },
-      { pose: "groom", frame: 0, duration: 440 },
-      { pose: "idle", duration: 1400 },
+      { pose: "idle", duration: t(13) },
+      { pose: "scratch", frame: 3, duration: t(6) },
+      { pose: "idle", duration: t(10) },
+      { pose: "groom", frame: 0, duration: t(4) },
+      { pose: "groom", frame: 1, duration: t(4) },
+      { pose: "groom", frame: 0, duration: t(5) },
+      { pose: "idle", duration: t(15) },
     ],
   },
   "low-medium": {
     name: "香箱犯困",
     frames: [
-      { pose: "idle", duration: 820 },
-      { pose: "yawn", frame: 0, duration: 520, y: 1 },
-      { pose: "yawn", frame: 1, duration: 560, y: 2 },
-      { pose: "yawn", frame: 0, duration: 520, y: 1 },
-      { pose: "idle", duration: 920 },
-      { pose: "yawn", frame: 0, duration: 520, y: 1 },
-      { pose: "idle", duration: 920 },
+      { pose: "idle", duration: t(9) },
+      { pose: "yawn", frame: 0, duration: t(6) },
+      { pose: "yawn", frame: 1, duration: t(6), y: 1 },
+      { pose: "yawn", frame: 0, duration: t(6) },
+      { pose: "idle", duration: t(10) },
+      { pose: "yawn", frame: 0, duration: t(6), y: 1 },
+      { pose: "idle", duration: t(10) },
     ],
   },
   "low-high": {
     name: "蜷睡呼吸",
     frames: [
-      { pose: "sleep", duration: 800 },
-      { pose: "sleep", duration: 800, y: -1 },
-      { pose: "sleep", duration: 800 },
-      { pose: "sleep", duration: 800, y: 1 },
-      { pose: "sleep", duration: 800 },
+      { pose: "sleep", duration: t(9) },
+      { pose: "sleep", duration: t(9), y: 1 },
+      { pose: "sleep", duration: t(9) },
+      { pose: "sleep", duration: t(9), y: 1 },
+      { pose: "sleep", duration: t(9) },
     ],
   },
 };
@@ -187,26 +186,26 @@ export function getCatStatus(energy: number, sleepiness: number): CatStatusId {
 export function getCatStatusTransition(from: CatStatusId, to: CatStatusId): CatAnimationFrame[] {
   if (to === "low-high") {
     return [
-      { pose: "idle", duration: 240 },
-      { pose: "yawn", frame: 0, duration: 260 },
-      { pose: "yawn", frame: 1, duration: 280 },
-      { pose: "yawn", frame: 2, duration: 300 },
-      { pose: "yawn", frame: 3, duration: 420 },
-      { pose: "yawn", frame: 2, duration: 260 },
-      { pose: "yawn", frame: 1, duration: 240 },
-      { pose: "wake", duration: 420 },
-      { pose: "sleep", duration: 600 },
+      { pose: "idle", duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 2, duration: t(3) },
+      { pose: "yawn", frame: 3, duration: t(5) },
+      { pose: "yawn", frame: 2, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "wake", duration: t(5) },
+      { pose: "sleep", duration: t(7) },
     ];
   }
 
   if (from === "low-high") {
     return [
-      { pose: "sleep", duration: 360 },
-      { pose: "wake", duration: 360 },
-      { pose: "yawn", frame: 0, duration: 240 },
-      { pose: "yawn", frame: 1, duration: 240 },
-      { pose: "yawn", frame: 0, duration: 220 },
-      { pose: "idle", duration: 360 },
+      { pose: "sleep", duration: t(4) },
+      { pose: "wake", duration: t(4) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(2) },
+      { pose: "idle", duration: t(4) },
     ];
   }
 
@@ -214,35 +213,35 @@ export function getCatStatusTransition(from: CatStatusId, to: CatStatusId): CatA
   const next = STATUS_LEVELS[to];
   if (current.energy === "high" && next.energy === "low") {
     return [
-      { pose: "walk", frame: 3, duration: 220, x: 4 },
-      { pose: "walk", frame: 2, duration: 260, x: 3 },
-      { pose: "walk", frame: 1, duration: 300, x: 1 },
-      { pose: "idle", duration: 420 },
+      { pose: "scratch", frame: 2, duration: t(3) },
+      { pose: "scratch", frame: 3, duration: t(3) },
+      { pose: "idle", duration: t(5) },
     ];
   }
   if (current.energy === "low" && next.energy === "high") {
     return [
-      { pose: "idle", duration: 280 },
-      { pose: "walk", frame: 0, duration: 220 },
-      { pose: "walk", frame: 1, duration: 180, x: 2 },
-      { pose: "idle", duration: 280 },
+      { pose: "idle", duration: t(3) },
+      { pose: "scratch", frame: 3, duration: t(2) },
+      { pose: "scratch", frame: 1, duration: t(2) },
+      { pose: "scratch", frame: 0, duration: t(2) },
+      { pose: "idle", duration: t(3) },
     ];
   }
   if (current.sleepiness === "low" && next.sleepiness === "high") {
     return [
-      { pose: "idle", duration: 260 },
-      { pose: "yawn", frame: 0, duration: 260 },
-      { pose: "yawn", frame: 1, duration: 300 },
-      { pose: "yawn", frame: 0, duration: 260 },
-      { pose: "idle", duration: 320 },
+      { pose: "idle", duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "idle", duration: t(4) },
     ];
   }
   if (current.sleepiness === "high" && next.sleepiness === "low") {
     return [
-      { pose: "yawn", frame: 1, duration: 280 },
-      { pose: "yawn", frame: 0, duration: 240 },
-      { pose: "idle", duration: 360 },
+      { pose: "yawn", frame: 1, duration: t(3) },
+      { pose: "yawn", frame: 0, duration: t(3) },
+      { pose: "idle", duration: t(4) },
     ];
   }
-  return [{ pose: "idle", duration: 360 }];
+  return [{ pose: "idle", duration: t(4) }];
 }

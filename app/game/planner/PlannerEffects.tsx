@@ -82,7 +82,7 @@ export function ShredderFeed({ item, seed, geometry }: { item: PlannerItem; seed
 export function ConfettiBurst({ x, y, seed }: { x: number; y: number; seed: number }) {
   const pieces = useMemo(() => {
     const random = seeded(seed);
-    return Array.from({ length: 46 }, (_, index) => {
+    return Array.from({ length: 28 }, (_, index) => {
       const angle = -Math.PI / 2 + (random() - .5) * Math.PI * 1.25;
       const distance = 90 + random() * 170;
       return {

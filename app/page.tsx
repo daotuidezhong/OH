@@ -9,6 +9,7 @@ import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingPro
 import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type Rect, type SceneId } from "./game/scene";
 import {
   CAT_STATUS_ANIMATIONS,
+  getCatStatLevel,
   getCatStatus,
   getCatStatusTransition,
   type CatAnimationFrame,
@@ -19,11 +20,14 @@ import { canPetMove, decayPetStatsByTime, formatSleepRemaining, getSleepRemainin
 import { getJournalReward } from "./game/journal-reward";
 import { getJournalStreak, localDate } from "./game/journal";
 import { fetchPlaylist, isRemotePlaybackUrl, type Playlist, type PlaylistTrack } from "./game/music";
-import { getWalkDirection, WALK_DIRECTION_ROW, type WalkDirection } from "./game/movement-direction";
+import { getWalkDirection, WALK_DIRECTION_ROW, WALK_REST_FRAME, type WalkDirection } from "./game/movement-direction";
 import { advanceFeeding, beginFeeding, DEFAULT_BOWL_POSITION, EMPTY_FEEDING, findBowlPlacement, normalizeBowlPosition } from "./game/feeding";
 import { EatingSprite, FoodBowl } from "./game/FeedingSprites";
 import { getFeedingDockOffset } from "./game/feeding-pose";
 import { furnitureCollision, useRoomDepth } from "./game/room-depth";
+import { launchRewardFlight } from "./game/reward-flight";
+import { planWalk, sampleWalk } from "./game/walk-motion";
+import PixelIcon, { type PixelIconName } from "./game/PixelIcon";
 import PlannerWall from "./game/planner/PlannerWall";
 import PlannerOverlay from "./game/planner/PlannerOverlay";
 import { completeTask, INITIAL_PLANNER, normalizePlanner, PLANNER_STORAGE_KEY, upcomingReminders, type PlannerState } from "./game/planner/planner";
@@ -123,8 +127,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.13";
+const RELEASE_VERSION = "0.9.14";
 const RELEASE_NOTES = [
+  { version: "0.9.14", items: ["猫咪八方向行走统一体型和落脚点，转向不再忽大忽小；打哈欠、洗脸、睡觉等动作与坐姿对齐，切换时不再横跳", "原地状态改为扑爪、张望、洗脸等动作，不再踩着走路帧原地腾空；精力充沛时会真的在屋里走一小段", "走路整段连续，起步加速、到站减速，迈腿跟随移动距离不再滑步，静止时会轻轻呼吸，动作之间直接切帧", "顶部状态与底部按钮换成像素图标，领取草莓时会从完成的位置飞入计数"] },
   { version: "0.9.13", items: ["首页墙上小日历改为一、二、三、四、五、六、日的星期排列", "同一天、同一时段内的同色安排折叠成组，色标显示组别与数量，点开后仍能逐项编辑和拖动", "截图导入课表改由 OH 提供共用 DeepSeek 识别服务，所有玩家无需填写自己的 API Key", "移除完成文件夹旁的“完成 + 彩带”文字，保留任务完成与彩带动画"] },
   { version: "0.9.12", items: ["墙上照片板升级为周日程本，课程支持教学周、单双周重复和单次调课，下课后自动粉碎", "任务支持拖动调整日期和时段、完成归档、草莓奖励及关联橙子专注，上课和定时任务提前 10 分钟提醒", "可使用自己的 DeepSeek API Key 截图导入课表，逐行核对后再添加；日程随完整备份迁移，Key 单独保存在本机", "食物碗支持自由摆放并记住位置，优化像素信息栏、猫咪行走显示和行走时的存档写入频率", "日程本替代旧照片板，旧照片板内容将清除；日记及日记照片不受影响"] },
   { version: "0.9.11", items: ["新增空碗与完整投喂流程，猫咪走到碗边后才进食，吃完恢复自主活动", "三只猫保持原始体型，以逐帧动作低头、咀嚼和抬头，修复猫头被碗或家具遮挡的问题", "草莓地毯等比例缩小，优化家具碰撞与绕行，并防止重复投喂和动作冲突", "修复桌面重复启动、存档导入、跨日记录、日记分页与草稿保存，以及照片上传、说明编辑和离线睡眠结算"] },
@@ -161,15 +166,15 @@ const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
   night: "夜晚",
 };
 
-const WEATHER_ICONS: Record<WeatherKind, string> = {
-  clear: "☀️",
-  cloudy: "☁️",
-  rain: "🌧️",
-  thunderstorm: "⛈️",
+const WEATHER_ICONS: Record<WeatherKind, PixelIconName> = {
+  clear: "sun",
+  cloudy: "cloud",
+  rain: "rain",
+  thunderstorm: "storm",
 };
 
-const getWeatherIcon = (weather: WeatherKind, period: TimePeriod) =>
-  weather === "clear" && period === "night" ? "🌙" : WEATHER_ICONS[weather];
+const getWeatherIcon = (weather: WeatherKind, period: TimePeriod): PixelIconName =>
+  weather === "clear" && period === "night" ? "moon" : WEATHER_ICONS[weather];
 
 declare global {
   interface Window {
@@ -299,7 +304,7 @@ const furnitureItems = [
 const pets = [
   {
     id: "mitao" as PetId, name: "蜜桃", kind: "橘子猫", nature: "热情的小太阳",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-fixed-${frame}.png`), idle: "/game/cat-orange-idle.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-walk-fixed-${frame}.png`), idle: "/game/cat-orange-idle.png", idleBreathe: "/game/cat-orange-idle-breathe.png", sleep: "/game/cat-orange-sleep.png", wake: "/game/cat-orange-wake.png",
     walkSheet: "/game/cat-orange-walk-8dir-v4.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-orange-groom-fixed-${frame}.png`),
@@ -307,7 +312,7 @@ const pets = [
   },
   {
     id: "doubao" as PetId, name: "豆包", kind: "奶牛猫", nature: "安静的陪跑员",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-walk-fixed-${frame}.png`), idle: "/game/cat-cow-idle.png", idleBreathe: "/game/cat-cow-idle-breathe.png", sleep: "/game/cat-cow-sleep.png", wake: "/game/cat-cow-wake.png",
     walkSheet: "/game/cat-cow-walk-8dir-v4.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-cow-groom-fixed-${frame}.png`),
@@ -315,7 +320,7 @@ const pets = [
   },
   {
     id: "xueqiu" as PetId, name: "雪球", kind: "白绒猫", nature: "爱撒娇的鼓励师",
-    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-fixed-${frame}.png`), idle: "/game/cat-white-idle.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
+    walkFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-walk-fixed-${frame}.png`), idle: "/game/cat-white-idle.png", idleBreathe: "/game/cat-white-idle-breathe.png", sleep: "/game/cat-white-sleep.png", wake: "/game/cat-white-wake.png",
     walkSheet: "/game/cat-white-walk-8dir-v4.png",
     wakeYawnFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-wake-yawn-${frame}.png`),
     groomFrames: [1, 2, 3, 4].map((frame) => `/game/cat-white-groom-fixed-${frame}.png`),
@@ -430,8 +435,6 @@ const FURNITURE_FOOTPRINTS: Record<string, { halfWidth: number; height: number }
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
 const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
-const WALK_FRAME_MS = 90;
-const WALK_CYCLE_MS = WALK_FRAME_MS * 4;
 const STATUS_IDLE_MS = 8000;
 const BAR_CAPACITY_ML = 350;
 const ICE_CUBE_LAYOUT = [
@@ -458,6 +461,33 @@ function getLoopedStatusFrame(frames: CatAnimationFrame[], now: number) {
     elapsed -= frame.duration;
   }
   return frames[0];
+}
+
+// Status animations happen in place, so they never show walk frames: legs only
+// move while walkCatTo is really carrying the cat across the room.
+function getStatusPoseAsset(cat: (typeof pets)[number], frame: CatAnimationFrame, breathe = false) {
+  const index = frame.frame ?? 0;
+  switch (frame.pose) {
+    case "groom": return cat.groomFrames[index];
+    case "yawn": return cat.wakeYawnFrames[index];
+    case "scratch": return cat.scratchFrames[index];
+    case "sleep": return cat.sleep;
+    case "wake": return cat.wake;
+    default: return breathe ? cat.idleBreathe : cat.idle;
+  }
+}
+
+// Energetic cats sometimes take a real short stroll instead of pacing on the spot.
+const WANDER_CHANCE = { high: .55, medium: .2, low: 0 } as const;
+const WANDER_COOLDOWN_MS = 12_000;
+// Idle breathing: the chest rests low for BREATH_REST_MS, then rises for BREATH_RISE_MS.
+const BREATH_REST_MS = 18 * 90;
+const BREATH_RISE_MS = 10 * 90;
+// After arriving, the cat holds its paws-together walk frame for two ticks before sitting.
+const WALK_SETTLE_MS = 2 * 90;
+
+function isBreathRising(now: number) {
+  return now % (BREATH_REST_MS + BREATH_RISE_MS) >= BREATH_REST_MS;
 }
 
 export default function Home() {
@@ -506,7 +536,8 @@ export default function Home() {
   const bowlPosition = bowlDraft?.position ?? game.bowlPosition;
   const [jumping, setJumping] = useState(false);
   const [walkFrame, setWalkFrame] = useState(0);
-  const [walkDuration, setWalkDuration] = useState(0);
+  const [walkSettling, setWalkSettling] = useState(false);
+  const [breathRising, setBreathRising] = useState(false);
   const [timePeriod, setTimePeriod] = useState<TimePeriod>("noon");
   const [weather, setWeather] = useState<{ kind: WeatherKind; label: string }>({ kind: "clear", label: "晴" });
   const [catStatus, setCatStatus] = useState<CatStatusId>(() => getCatStatus(INITIAL_GAME.energy, INITIAL_GAME.sleepiness));
@@ -550,6 +581,8 @@ export default function Home() {
   const [planner, setPlanner] = useState<PlannerState>(INITIAL_PLANNER);
   const [plannerReady, setPlannerReady] = useState(false);
   const [plannerNow, setPlannerNow] = useState(Date.now());
+  const rewardOrigin = useRef<(Point & { at: number }) | null>(null);
+  const previousBerries = useRef<number | null>(null);
   const plannerHour = Math.floor(plannerNow / 3_600_000);
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -559,7 +592,9 @@ export default function Home() {
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
   const motionFrame = useRef(0);
+  const liveWalk = useRef<{ point: Point; speed: number; stride: number } | null>(null);
   const headShakeTimer = useRef<number | undefined>(undefined);
+  const lastWanderAt = useRef(0);
   const sleepInterruptReadyAt = useRef(0);
   const animationImages = useRef<HTMLImageElement[]>([]);
   const scratchTimer = useRef<number | undefined>(undefined);
@@ -887,6 +922,31 @@ export default function Home() {
     if (plannerReady) writePersisted(PLANNER_STORAGE_KEY, JSON.stringify(planner));
   }, [planner, plannerReady]);
 
+  // Any rise in strawberries flies from where it was earned (or the screen centre) to the counter.
+  useEffect(() => {
+    if (!ready) return;
+    const previous = previousBerries.current;
+    previousBerries.current = game.berries;
+    const origin = rewardOrigin.current && Date.now() - rewardOrigin.current.at < 8000 ? rewardOrigin.current : null;
+    rewardOrigin.current = null;
+    if (previous === null || game.berries <= previous) return;
+    const counter = document.querySelector<HTMLElement>('[data-counter="berries"]');
+    if (!counter) return;
+    launchRewardFlight(origin ? { x: origin.x, y: origin.y } : { x: window.innerWidth / 2, y: window.innerHeight / 2 }, counter, game.berries - previous);
+  }, [game.berries, ready]);
+
+  // Development builds only: Alt+Shift+R replays the reward flight without changing any strawberries.
+  useEffect(() => {
+    if (process.env.NODE_ENV === "production") return;
+    const replay = (event: KeyboardEvent) => {
+      if (!event.altKey || !event.shiftKey || event.code !== "KeyR") return;
+      const counter = document.querySelector<HTMLElement>('[data-counter="berries"]');
+      if (counter) launchRewardFlight({ x: window.innerWidth / 2, y: window.innerHeight * .6 }, counter, 6);
+    };
+    window.addEventListener("keydown", replay);
+    return () => window.removeEventListener("keydown", replay);
+  }, []);
+
   useEffect(() => {
     if (!plannerOpen) return;
     const previous = document.body.style.overflow;
@@ -949,6 +1009,7 @@ export default function Home() {
     const currentDate = localDate(new Date(pomodoroNow));
     const result = settlePomodoro(game.pomodoro, currentDate, pomodoroNow);
     queueMicrotask(() => {
+      if (result.reward) markRewardOrigin(document.querySelector(".pomodoro-primary") ?? document.querySelector(".pomodoro-dock"));
       setGame((current) => current.pomodoro.endsAt === deadline ? {
         ...current,
         berries: current.berries + result.reward,
@@ -1109,7 +1170,7 @@ export default function Home() {
   }, [toast]);
 
   useEffect(() => {
-    const frames = ["/game/food-bowl-empty.png", ...pets.flatMap((item) => [item.idle, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames])];
+    const frames = ["/game/food-bowl-empty.png", ...pets.flatMap((item) => [item.idle, item.idleBreathe, item.sleep, item.wake, item.walkSheet, ...item.wakeYawnFrames, ...item.walkFrames, ...item.groomFrames, ...item.scratchFrames])];
     animationImages.current = frames.map((src) => {
       const image = new Image();
       image.src = src;
@@ -1143,14 +1204,12 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [game.scene, renderedSceneUrl]);
 
+  // While walking, walkCatTo sets the leg frame from distance travelled; at rest it returns to the stance frame.
   useEffect(() => {
-    if (!walking) {
-      const timer = window.setTimeout(() => setWalkFrame(0), 0);
-      return () => window.clearTimeout(timer);
-    }
-    const timer = window.setInterval(() => setWalkFrame((frame) => (frame + 1) % 4), WALK_FRAME_MS);
-    return () => window.clearInterval(timer);
-  }, [walking]);
+    if (walking && !walkSettling) return;
+    const timer = window.setTimeout(() => setWalkFrame(0), 0);
+    return () => window.clearTimeout(timer);
+  }, [walking, walkSettling]);
 
   useEffect(() => {
     if (!scratching) return;
@@ -1177,6 +1236,18 @@ export default function Home() {
     }, 60_000);
     return () => window.clearInterval(timer);
   }, [feedingBusy, decorating, game.catFurniture, game.catPosition.x, game.catPosition.y, game.energy, game.furniturePositions.yarnBasket, game.pet, game.purchased, game.scene, lounging, overlay, resting, scratching, wakingUp, walking]);
+
+  useEffect(() => {
+    const chance = WANDER_CHANCE[getCatStatLevel(game.energy)];
+    // Only stroll from a calm idle on the floor, never in the middle of a status animation.
+    if (!chance || !ready || !statusIdle || game.scene !== "room" || game.catFurniture || overlay || decorating || sceneTransition || dragging
+      || feedingBusy || walking || resting || lounging || wakingUp || scratching || !canPetMove(game.energy)) return;
+    const cooldown = Math.max(0, WANDER_COOLDOWN_MS - (Date.now() - lastWanderAt.current));
+    const timer = window.setTimeout(() => {
+      if (Math.random() < chance) wanderNearby();
+    }, cooldown + 2000 + Math.random() * 3000);
+    return () => window.clearTimeout(timer);
+  }, [decorating, dragging, feedingBusy, game.catFurniture, game.energy, game.pet, game.scene, lounging, overlay, ready, resting, sceneTransition, scratching, statusIdle, wakingUp, walking]);
 
   useEffect(() => {
     if (!wakingUp) return;
@@ -1385,24 +1456,27 @@ export default function Home() {
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
     : statusFrames[statusFrame] ?? statusFrames[0];
-  const poseFrame = currentStatusFrame.frame ?? 0;
-  const statusAsset = currentStatusFrame.pose === "walk"
-    ? pet.walkFrames[poseFrame]
-    : currentStatusFrame.pose === "groom"
-      ? pet.groomFrames[poseFrame]
-      : currentStatusFrame.pose === "yawn"
-        ? pet.wakeYawnFrames[poseFrame]
-        : currentStatusFrame.pose === "sleep"
-          ? pet.sleep
-          : currentStatusFrame.pose === "wake"
-            ? pet.wake
-            : pet.idle;
+  const showingIdle = !feedingBusy && !walking && !resting && !lounging && !wakingUp && !scratching && currentStatusFrame.pose === "idle";
+  const statusAsset = getStatusPoseAsset(pet, currentStatusFrame, showingIdle && breathRising);
+  const walkSheetFrame = (walkFrame + WALK_REST_FRAME[direction]) % 4;
   const wakeSequenceAssets = [pet.sleep, pet.wake, ...WAKE_YAWN_SEQUENCE.map((frame) => pet.wakeYawnFrames[frame]), pet.idle];
   const activePose: CatPose = resting || lounging ? "sleep" : wakingUp ? "wake" : walking ? "walk" : currentStatusFrame.pose;
   const catAsset = scratching ? pet.scratchFrames[scratchFrame] : resting || lounging ? pet.sleep : wakingUp ? wakeSequenceAssets[wakeFrame] : walking ? pet.walkFrames[walkFrame] : statusAsset;
   const facingLeft = direction === "left" || direction === "up-left" || direction === "down-left";
   const motionX = feedingBusy || walking || resting || lounging || wakingUp || scratching ? 0 : (currentStatusFrame.x ?? 0) * (facingLeft ? -1 : 1);
   const motionY = feedingBusy || walking || resting || lounging || wakingUp || scratching ? 0 : currentStatusFrame.y ?? 0;
+
+  useEffect(() => {
+    if (!showingIdle) return;
+    // Every idle starts with the chest down, so breathing never pops in mid-rise.
+    let rising = false;
+    let timer = window.setTimeout(function breathe() {
+      rising = !rising;
+      setBreathRising(rising);
+      timer = window.setTimeout(breathe, rising ? BREATH_RISE_MS : BREATH_REST_MS);
+    }, BREATH_REST_MS);
+    return () => { window.clearTimeout(timer); setBreathRising(false); };
+  }, [showingIdle]);
 
   useEffect(() => {
     if (!ready || game.scene !== "room" || feedingBusy || dragging) return;
@@ -1557,11 +1631,19 @@ export default function Home() {
     setOverlay(null);
   }
 
+  function markRewardOrigin(target: Element | null | undefined) {
+    const rect = target?.getBoundingClientRect();
+    rewardOrigin.current = rect && rect.width ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2, at: Date.now() } : null;
+  }
+
   function completePlannerTask(taskId: string) {
     const result = completeTask(planner, taskId, new Date());
     if (result.state === planner) return 0;
     setPlanner(result.state);
-    if (result.reward) setGame((current) => ({ ...current, berries: current.berries + result.reward }));
+    if (result.reward) {
+      markRewardOrigin(document.querySelector(".planner-folder-button"));
+      setGame((current) => ({ ...current, berries: current.berries + result.reward }));
+    }
     if (!resting && !wakingUp && !feedingBusy && !walking) setStatusIdle(false);
     return result.reward;
   }
@@ -2026,41 +2108,75 @@ export default function Home() {
   function walkCatTo(target: Point, onFinished?: () => void, shouldJump = false, excludeFurniture?: string) {
     if (feedingRef.current.phase !== "IDLE") return;
     const obstacles = getSceneObstacles(excludeFurniture);
-    const start = readCatPosition(game.pet);
+    // A walk interrupted mid-stride (e.g. a held arrow key) carries on from its exact
+    // point, speed and leg phase instead of restarting from a standstill.
+    const carried = liveWalk.current;
+    const start = carried?.point ?? readCatPosition(game.pet);
     const path = getWalkPath(start, target, game.scene, obstacles);
     if (!path.length) { setToast("这里暂时走不过去，试试其他位置吧"); return; }
     window.clearTimeout(walkingTimer.current);
     window.cancelAnimationFrame(motionFrame.current);
-    let from = start;
     resetStatusAnimation();
     setResting(false);
     setLounging(false);
     setScratching(false);
     setJumping(shouldJump);
+    setWalkSettling(false);
     setWalking(true);
-    const step = (index: number) => {
-      const destination = path[index];
-      const origin = from;
-      const duration = Math.round(clamp(Math.hypot(destination.x - from.x, destination.y - from.y) * 14, WALK_CYCLE_MS * 2, 900));
-      const stepDirection = getWalkDirection(from, destination);
-      setDirection(stepDirection);
-      setWalkDuration(0);
-      let startedAt: number | null = null;
-      const animate = (time: number) => {
-        startedAt ??= time;
-        const ratio = Math.min(1, (time - startedAt) / duration);
-        const point = { x: origin.x + (destination.x - origin.x) * ratio, y: origin.y + (destination.y - origin.y) * ratio };
-        setGame((current) => ({ ...current, catPosition: point, catFurniture: null }));
-        from = point;
-        if (ratio < 1) motionFrame.current = window.requestAnimationFrame(animate);
-        else walkingTimer.current = window.setTimeout(() => {
-          if (index + 1 < path.length) step(index + 1);
-          else { setWalking(false); setJumping(false); onFinished?.(); }
-        }, 60);
-      };
-      motionFrame.current = window.requestAnimationFrame(animate);
+    setGame((current) => current.catFurniture ? { ...current, catFurniture: null } : current);
+    const room = roomRef.current?.getBoundingClientRect();
+    const catElement = roomRef.current?.querySelector<HTMLElement>(".walking-cat");
+    const plan = planWalk([start, ...path], { width: room?.width || 1000, height: room?.height || 600 },
+      catElement?.getBoundingClientRect().width || 120, carried?.speed ?? 0, carried?.stride ?? 0);
+    let shownFrame = -1;
+    let shownDirection: WalkDirection | null = null;
+    // The clock starts now, not at the first frame: a held key restarts the walk every
+    // ~30ms, and losing the first frame of each restart made the cat stutter.
+    const startedAt = performance.now();
+    const animate = (time: number) => {
+      const sample = sampleWalk(plan, Math.max(0, time - startedAt));
+      const point = sample.point;
+      liveWalk.current = { point, speed: sample.speed, stride: plan.strideOffset + sample.distance };
+      // Position goes straight to the DOM; React only re-renders when the leg frame or facing changes.
+      if (catElement) { catElement.style.left = `${point.x}%`; catElement.style.top = `${point.y}%`; }
+      if (sample.frame !== shownFrame) { shownFrame = sample.frame; setWalkFrame(sample.frame); }
+      if (sample.direction !== shownDirection) { shownDirection = sample.direction; setDirection(sample.direction); }
+      if (!sample.done) { motionFrame.current = window.requestAnimationFrame(animate); return; }
+      liveWalk.current = null;
+      setGame((current) => ({ ...current, catPosition: point, catFurniture: null }));
+      setWalkSettling(true);
+      walkingTimer.current = window.setTimeout(() => {
+        setWalkSettling(false); setWalking(false); setJumping(false); onFinished?.();
+      }, WALK_SETTLE_MS);
     };
-    step(0);
+    motionFrame.current = window.requestAnimationFrame(animate);
+  }
+
+  // Stop a walk in place and keep the cat where it actually is on screen.
+  function haltWalk() {
+    window.clearTimeout(walkingTimer.current);
+    window.cancelAnimationFrame(motionFrame.current);
+    const live = liveWalk.current;
+    liveWalk.current = null;
+    if (live) setGame((current) => ({ ...current, catPosition: live.point }));
+    setWalkSettling(false);
+    setWalking(false);
+  }
+
+  function wanderNearby() {
+    const obstacles = getSceneObstacles();
+    const start = readCatPosition(game.pet);
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const angle = Math.random() * Math.PI * 2;
+      const distance = 6 + Math.random() * 8;
+      const target = clampToScene({ x: start.x + Math.cos(angle) * distance, y: start.y + Math.sin(angle) * distance * .5 }, game.scene, obstacles);
+      if (Math.hypot(target.x - start.x, target.y - start.y) < 4) continue;
+      const path = getWalkPath(start, target, game.scene, obstacles);
+      if (!path.length || path.length > 2) continue;
+      lastWanderAt.current = Date.now();
+      walkCatTo(target);
+      return;
+    }
   }
 
   function moveCatToFurniture(item: (typeof furnitureItems)[number], position: Point, heightOverride?: number) {
@@ -2228,8 +2344,7 @@ export default function Home() {
     if (inspectedPetId !== game.pet) switchControlledPet(inspectedPetId);
     feedingRef.current = session;
     setFeeding(session);
-    window.clearTimeout(walkingTimer.current);
-    window.cancelAnimationFrame(motionFrame.current);
+    haltWalk();
     window.clearInterval(scratchTimer.current);
     window.clearTimeout(headShakeTimer.current);
     setWalking(false);
@@ -2241,7 +2356,6 @@ export default function Home() {
     setHeadShaking(false);
     setInterruptConfirm(false);
     setSleepRemainingMs(0);
-    setWalkDuration(0);
     resetStatusAnimation();
     setGame((current) => ({
       ...current, catPosition: from,
@@ -2280,8 +2394,7 @@ export default function Home() {
     const targetSleepRemaining = getSleepRemainingMs(targetSleep.endsAt, now);
     const savedTargetStats = game.petStats[id] ?? INITIAL_GAME.petStats[id];
     const targetStats = settlePetSleep(savedTargetStats.energy, savedTargetStats.sleepiness, savedTargetStats.statsUpdatedAt > 0 ? savedTargetStats.statsUpdatedAt : now, targetSleep.endsAt, targetSleep.rest, now);
-    window.clearTimeout(walkingTimer.current);
-    window.cancelAnimationFrame(motionFrame.current);
+    haltWalk();
     setWalking(false);
     setJumping(false);
     setLounging(false);
@@ -2372,8 +2485,7 @@ export default function Home() {
     setWateringPlot(null);
     setLounging(false);
     setScratching(false);
-    window.clearTimeout(walkingTimer.current);
-    window.cancelAnimationFrame(motionFrame.current);
+    haltWalk();
     setWalking(false);
     setSceneTransition(true);
     window.setTimeout(() => {
@@ -2524,10 +2636,10 @@ export default function Home() {
             ? <canvas ref={sceneCanvasRef} className="room-background" role="img" aria-label={`像素风猫咪小屋的${weather.label}场景`} />
             : <img className="room-background" src={sceneAsset} alt={`像素风猫咪院子的${weather.label}场景`} draggable={false} />}
           <div className="room-vignette" />
-          <button type="button" data-interactive className={`scene-door scene-door-${game.scene}`} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
-          {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
-          {game.scene === "room" && <button type="button" data-interactive className="music-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
-          {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
+          <button type="button" data-interactive className={`scene-door scene-door-${game.scene} room-hint`} data-hint={game.scene === "room" ? "去院子" : "回到室内"} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
+          {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot room-hint" data-hint="厨房烹饪" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
+          {game.scene === "room" && <button type="button" data-interactive className="music-hotspot room-hint" data-hint="黑胶唱片" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
+          {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot room-hint" data-hint="开始调酒" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
           {game.scene === "room" && <PlannerWall open={plannerOpen} planner={planner} today={today} now={plannerNow} onOpen={(rect) => { setPlannerOrigin(rect); setPlannerNow(Date.now()); setPlannerOpen(true); }} />}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
@@ -2594,20 +2706,7 @@ export default function Home() {
               const roommateStats = game.petStats[id] ?? INITIAL_GAME.petStats[id];
               const roommateStatus = getCatStatus(roommateStats.energy, roommateStats.sleepiness);
               const roommateFrame = getLoopedStatusFrame(CAT_STATUS_ANIMATIONS[roommateStatus].frames, roommateAnimationNow + (id === "doubao" ? 320 : id === "xueqiu" ? 640 : 0));
-              const roommatePoseFrame = roommateFrame.frame ?? 0;
-              const roommateAsset = roommateSleepRemaining > 0
-                ? cat.sleep
-                : roommateFrame.pose === "walk"
-                  ? cat.walkFrames[roommatePoseFrame]
-                  : roommateFrame.pose === "groom"
-                    ? cat.groomFrames[roommatePoseFrame]
-                    : roommateFrame.pose === "yawn"
-                      ? cat.wakeYawnFrames[roommatePoseFrame]
-                      : roommateFrame.pose === "sleep"
-                        ? cat.sleep
-                        : roommateFrame.pose === "wake"
-                          ? cat.wake
-                          : cat.idle;
+              const roommateAsset = roommateSleepRemaining > 0 ? cat.sleep : getStatusPoseAsset(cat, roommateFrame, isBreathRising(roommateAnimationNow + (id === "doubao" ? 700 : 1400)));
               return <div className={`scene-cat roommate-cat ${roommateSleepRemaining > 0 ? "sleeping" : ""}`} data-pet-id={id} data-scene-depth="cat" data-on-furniture={roommateSleepRemaining > 0 ? roommateSleep.furnitureId ?? undefined : undefined} key={id} style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) + 1 }}>
                 <img className={`cat-base cat-pose-${roommateSleepRemaining > 0 ? "sleep" : roommateFrame.pose}`} src={roommateAsset} alt={roommateSleepRemaining > 0 ? `${game.petNames[id]}正在睡觉` : `${game.petNames[id]}正在${CAT_STATUS_ANIMATIONS[roommateStatus].name}`} style={{ translate: roommateSleepRemaining > 0 ? undefined : `${roommateFrame.x ?? 0}px ${roommateFrame.y ?? 0}px` }} />
                 <b>{roommateSleepRemaining > 0 ? `${game.petNames[id]} · ${formatSleepRemaining(roommateSleepRemaining)}` : game.petNames[id]}</b>
@@ -2622,12 +2721,12 @@ export default function Home() {
               data-cat-status={desiredCatStatus}
               data-active-status={catStatus}
               key={id}
-              style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(position.y) + 2, transitionDuration: `${walkDuration}ms` }}
+              style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: game.catFurniture ? Math.round((game.furniturePositions[game.catFurniture] ?? DEFAULT_FURNITURE_POSITIONS[game.catFurniture]).y) + 2 : Math.round(position.y) + 2 }}
             >
               {["LOWER_HEAD", "EATING", "FINISH_EATING"].includes(feeding.phase)
                 ? <EatingSprite feeding={feeding} />
                 : walking
-                ? <span className="cat-base cat-walk-sprite cat-pose-walk" role="img" aria-label={`${game.petNames[id]}正在行走`} data-walk-direction={direction} data-walk-frame={walkFrame} style={{ "--walk-frame": walkFrame, "--walk-row": WALK_DIRECTION_ROW[direction] } as CSSProperties}><img className="cat-walk-sheet" src={pet.walkSheet} alt="" decoding="sync" draggable={false} /></span>
+                ? <span className="cat-base cat-walk-sprite cat-pose-walk" role="img" aria-label={`${game.petNames[id]}正在行走`} data-walk-direction={direction} data-walk-frame={walkSheetFrame} style={{ "--walk-frame": walkSheetFrame, "--walk-row": WALK_DIRECTION_ROW[direction] } as CSSProperties}><img className="cat-walk-sheet" src={pet.walkSheet} alt="" decoding="sync" draggable={false} /></span>
                 : <img className={`cat-base cat-pose-${activePose}`} src={feeding.phase === "WAKING" ? feeding.elapsed < 280 ? pet.sleep : feeding.elapsed < 560 ? pet.wake : pet.wakeYawnFrames[Math.min(3, Math.floor((feeding.elapsed - 560) / 210))] : feedingBusy ? pet.idle : catAsset} alt={`${game.petNames[id]}正在小屋里`} decoding="sync" draggable={false} style={{ transform: `scaleX(${facingLeft ? -1 : 1})`, translate: `${motionX}px ${motionY}px` }} />}
               <b>{feedingBusy ? feeding.phase === "WAKING" ? "起床吃饭…" : feeding.phase === "WALK_TO_BOWL" ? "去吃饭…" : feeding.phase === "FINISH_EATING" ? "吃饱啦" : "吃饭中…" : headShaking ? "太困啦…" : wakingUp ? "起床中…" : resting ? `还剩 ${formatSleepRemaining(sleepRemainingMs)}` : scratching ? "玩耍中…" : lounging ? "休息中…" : game.petNames[id]}</b>
             </div>;
@@ -2683,14 +2782,14 @@ export default function Home() {
 
         <header className="game-hud">
           <div className="scene-context">
-            <span className="scene-context-home" aria-hidden="true">🏠</span>
+            <span className="scene-context-home" aria-hidden="true"><PixelIcon name="home" size={30} /></span>
             <span><b>{game.scene === "room" ? "OH" : "草莓小院"}</b><small>{weather.label} · {TIME_PERIOD_LABELS[timePeriod]}</small></span>
-            <span className="scene-context-weather" aria-hidden="true">{getWeatherIcon(weather.kind, timePeriod)}</span>
-            {desktopDataAvailable && <button type="button" className="data-transfer-button" onClick={() => openOverlay("data")} aria-label="数据备份" title="数据备份"><span aria-hidden="true">💾</span><b>数据备份</b></button>}
+            <span className="scene-context-weather" aria-hidden="true"><PixelIcon name={getWeatherIcon(weather.kind, timePeriod)} size={26} /></span>
+            {desktopDataAvailable && <button type="button" className="data-transfer-button" onClick={() => openOverlay("data")} aria-label="数据备份" title="数据备份"><span aria-hidden="true"><PixelIcon name="floppy" size={18} /></span><b>数据备份</b></button>}
           </div>
           <div className="hud-counters">
-            <div><span aria-hidden="true">🔥</span><small>连续</small><b>{game.streak} 天</b></div>
-            <div><span aria-hidden="true">🍓</span><small>草莓</small><b>{game.berries}</b></div>
+            <div data-counter="streak"><span aria-hidden="true"><PixelIcon name="flame" size={28} /></span><small>连续</small><b>{game.streak} 天</b></div>
+            <div data-counter="berries"><span aria-hidden="true"><PixelIcon name="strawberry" size={28} /></span><small>草莓</small><b>{game.berries}</b></div>
           </div>
         </header>
 
@@ -2718,10 +2817,10 @@ export default function Home() {
         <nav className="game-dock" aria-label="游戏菜单">
           <button className={overlay === "quest" || overlay === "history" ? "active" : ""} onClick={() => openOverlay("quest")}><span className="dock-icon dock-record-icon" aria-hidden="true"><span className="record-book"><span className="closed-book"><span className="closed-book-pages" /><span className="closed-book-cover" /><span className="closed-book-spine" /></span><span className="open-book"><span className="open-book-cover" /><span className="open-book-page open-book-page-left" /><span className="open-book-page open-book-page-right" /><span className="open-book-spine" /><span className="open-book-edge open-book-edge-left" /><span className="open-book-edge open-book-edge-right" /></span></span></span><b>记录</b></button>
           <button className={`pomodoro-dock ${overlay === "pomodoro" ? "active" : ""} ${pomodoroActive ? "is-running" : ""}`} onClick={() => openOverlay("pomodoro")}><span className="pomodoro-dock-icon"><span className="pomodoro-ring pomodoro-ring-left" /><img src="/game/pomodoro-orange.png" alt="" draggable={false} /><span className="pomodoro-ring pomodoro-ring-right" /></span><b>橙子钟</b>{game.pomodoro.status !== "idle" && <em>{formatPomodoroTime(pomodoroRemaining)}</em>}</button>
-          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span className="dock-icon dock-bag-icon" aria-hidden="true"><span className="bag-body"><span className="bag-inner" /><span className="bag-opening" /><span className="bag-top bag-top-left" /><span className="bag-top bag-top-right" /><span className="zipper-track zipper-track-left" /><span className="zipper-track zipper-track-right" /><span className="bag-pocket" /><span className="bag-content">🍓</span><span className="bag-zipper" /></span></span><b>背包</b><i>{totalBackpackItems}</i></button>
-          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span className="dock-icon dock-shop-icon" aria-hidden="true"><span className="dock-icon-glyph">🛒</span><span className="dock-cart-item">🍓</span><span className="cart-wheel cart-wheel-left" /><span className="cart-wheel cart-wheel-right" /></span><b>商店</b></button>
+          <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span className="dock-icon dock-bag-icon" aria-hidden="true"><span className="bag-body"><span className="bag-inner" /><span className="bag-opening" /><span className="bag-top bag-top-left" /><span className="bag-top bag-top-right" /><span className="zipper-track zipper-track-left" /><span className="zipper-track zipper-track-right" /><span className="bag-pocket" /><span className="bag-content"><PixelIcon name="strawberry" size={11} /></span><span className="bag-zipper" /></span></span><b>背包</b><i>{totalBackpackItems}</i></button>
+          <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span className="dock-icon dock-shop-icon" aria-hidden="true"><span className="dock-icon-glyph"><PixelIcon name="cart" size={28} /></span><span className="dock-cart-item"><PixelIcon name="strawberry" size={9} /></span></span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span className="dock-icon dock-pets-icon" aria-hidden="true"><span className="dock-paw dock-paw-one" /><span className="dock-paw dock-paw-two" /></span><b>伙伴</b></button>
-          <button className={decorating ? "active" : ""} disabled={game.scene === "yard" || feedingBusy} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon dock-decorate-icon" aria-hidden="true"><span className="dock-icon-glyph">🪑</span><span className="dock-move-hint" /></span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
+          <button className={decorating ? "active" : ""} disabled={game.scene === "yard" || feedingBusy} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span className="dock-icon dock-decorate-icon" aria-hidden="true"><span className="dock-icon-glyph"><PixelIcon name="chair" size={28} /></span><span className="dock-move-hint" /></span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 
         {overlay && (
@@ -2798,7 +2897,7 @@ export default function Home() {
               {overlay === "quest" && (
                 <>
                   <div className="window-heading"><small>TODAY&apos;S NOTE</small><h1>今日记录</h1><p>{dateLabel || "今天"}</p></div>
-                  <form className="activity-entry" onSubmit={checkIn}>
+                  <form className="activity-entry" onSubmit={(event) => { markRewardOrigin(event.currentTarget.querySelector("[type=submit]")); void checkIn(event); }}>
                     <label htmlFor="today-note">今天发生了什么？</label>
                     <div>
                       <textarea id="today-note" value={noteText} onChange={(event) => setNoteText(event.target.value)} placeholder="记录一件今天想留下的事情……" maxLength={300} rows={5} />

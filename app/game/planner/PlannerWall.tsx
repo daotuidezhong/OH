@@ -174,6 +174,6 @@ export default function PlannerWall({ open, planner, today, now, onOpen }: Props
   const todayCount = items.filter((item) => item.date === today).length;
   return <div className={`scene-planner ${open ? "is-open" : ""}`}>
     <canvas ref={canvasRef} className="scene-planner-art" width={ART_WIDTH} height={ART_HEIGHT} aria-hidden="true" />
-    <button type="button" data-interactive className="planner-hotspot" aria-label={`打开墙上的日程本${week ? `，第 ${week} 周` : ""}，今天还有 ${todayCount} 项安排`} disabled={open} onPointerDown={(event) => event.stopPropagation()} onClick={() => { const rect = canvasRef.current?.getBoundingClientRect(); if (rect) onOpen(rect); }} />
+    <button type="button" data-interactive className="planner-hotspot room-hint" data-hint="日程本" aria-label={`打开墙上的日程本${week ? `，第 ${week} 周` : ""}，今天还有 ${todayCount} 项安排`} disabled={open} onPointerDown={(event) => event.stopPropagation()} onClick={() => { const rect = canvasRef.current?.getBoundingClientRect(); if (rect) onOpen(rect); }} />
   </div>;
 }

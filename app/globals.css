@@ -87,8 +87,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .music-hotspot { left: 75.8%; top: 28%; width: 17.5%; height: 23%; }
 
 .bar-hotspot { left: 79%; top: 54%; width: 21%; height: 38%; }
-.bar-hotspot::after { position: absolute; left: 50%; bottom: 12%; padding: 8px 10px; border: 2px solid #765247; border-radius: 10px; background: #fff2d2; box-shadow: 0 3px 0 #b98b68; color: #6f4238; content: "开始调酒"; opacity: 0; transform: translate(-50%, 5px); transition: opacity .14s ease, transform .18s var(--ease-out); font-size: 11px; white-space: nowrap; }
-.bar-hotspot:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
+/* Every clickable piece of the room names itself on hover, on the same paper plaque as the HUD. */
+.room-hint::after { position: absolute; left: 50%; bottom: var(--hint-bottom, 12%); z-index: 2; padding: 5px 9px; border: 2px solid var(--hud-outline); border-radius: 2px; background: var(--hud-paper-grain), var(--hud-surface); box-shadow: inset 0 0 0 1px var(--hud-trim), 3px 3px 0 rgba(58, 34, 20, .32); color: #5a3517; content: attr(data-hint); font-family: "ZCOOL KuaiLe", system-ui, sans-serif; font-size: 13px; line-height: 1.2; white-space: nowrap; opacity: 0; transform: translate(-50%, 5px); transition: opacity .14s ease, transform .18s var(--ease-out); pointer-events: none; }
+.kitchen-hotspot { --hint-bottom: 8%; }
+.music-hotspot { --hint-bottom: 10%; }
+.scene-door { --hint-bottom: 42%; }
+.planner-hotspot.room-hint { --hint-bottom: -34px; }
+.room-hint:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
 :is(.kitchen-hotspot, .music-hotspot, .bar-hotspot):focus-visible { outline: 4px dashed rgba(123, 76, 53, .85); outline-offset: -8px; }
 .vinyl-player { margin-top: 17px; overflow: hidden; border: 4px solid #4b2d22; border-radius: 10px; background: #6d3d27; box-shadow: 0 6px 0 #382119, inset 0 0 0 3px #a66a3b; }
 .turntable-panel { min-height: 160px; padding: 16px 20px; display: grid; grid-template-columns: 128px minmax(0, 1fr); grid-template-rows: 1fr auto; gap: 8px 20px; align-items: center; border-bottom: 7px solid #3d241b; background: linear-gradient(90deg, #8f5735 0 4px, #75452e 4px 8px, #825035 8px 100%); color: #fff4d7; }
@@ -176,9 +181,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   right: 22px;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  /* Status plaques sit together on the left so the wall planner on the right stays uncovered. */
+  justify-content: flex-start;
+  gap: 10px;
   pointer-events: none;
 }
+.pixel-icon { display: block; filter: drop-shadow(1px 2px 0 rgba(74, 40, 20, .22)); }
 
 .scene-context, .hud-counters > div, .pet-status, .game-dock, .decorate-tools {
   border: 3px solid;
@@ -188,7 +196,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   color: var(--ink);
 }
 
-.scene-context { min-width: 244px; min-height: 66px; padding: 9px 10px 9px 12px; display: grid; grid-template-columns: 38px 1fr 28px auto; align-items: center; gap: 9px; border-radius: 5px; pointer-events: auto; }
+.scene-context { min-width: 206px; min-height: 66px; padding: 9px 10px 9px 12px; display: grid; grid-template-columns: 38px 1fr 28px auto; align-items: center; gap: 9px; border-radius: 5px; pointer-events: auto; }
 .scene-context .scene-context-home { width: 34px; height: 34px; display: grid; place-items: center; font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif; font-size: 28px; line-height: 1; filter: drop-shadow(0 2px 2px rgba(116, 72, 43, .18)); }
 .scene-context > span { min-width: 0; display: grid; gap: 4px; }
 .scene-context > span b { overflow: hidden; font-family: "ZCOOL KuaiLe", system-ui, sans-serif; font-size: 18px; font-weight: 700; line-height: 1; white-space: nowrap; text-overflow: ellipsis; }
@@ -214,12 +222,12 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
   user-select: none;
 }
 
-.scene-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease, translate .12s ease-out; }
+.scene-cat img { display: block; width: 100%; max-height: 185px; object-fit: contain; image-rendering: pixelated; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease; }
 /* The sheet is a real <img> so it reuses the preloaded, decoded picture instead of refetching a CSS background on every walk. */
 .cat-walk-sprite { position: relative; display: block; width: 100%; aspect-ratio: 1; overflow: hidden; transform-origin: 50% 100%; filter: var(--scene-lighting); transition: filter 1.2s ease; }
 .scene-cat .cat-walk-sheet { position: absolute; left: 0; top: 0; width: 400%; height: 800%; max-width: none; max-height: none; object-fit: fill; image-rendering: pixelated; filter: none; transform: translate(calc(var(--walk-frame) * -25%), calc(var(--walk-row) * -12.5%)); transition: none; }
-.walking-cat { transition: left .55s linear, top .55s linear; }
-.walking-cat.feeding-cat { transition: none; }
+/* walkCatTo and the feeding loop place the cat every animation frame; a CSS tween would lag behind them. */
+.walking-cat { transition: none; }
 .walking-cat.feeding-cat .cat-base { animation: none !important; }
 .walking-cat:is([data-feeding-state="LOWER_HEAD"], [data-feeding-state="EATING"], [data-feeding-state="FINISH_EATING"]) b { bottom: 87%; }
 .cat-eating-sprite { display: block; width: calc(100% * 512 / 418); max-width: none; height: auto; aspect-ratio: 512 / 418; image-rendering: pixelated; filter: var(--scene-lighting); }
@@ -235,24 +243,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .food-bowl .bowl-drag-label { position: absolute; left: 50%; bottom: -15px; padding: 4px 7px; transform: translateX(-50%); border: 2px solid #725447; border-radius: 8px; background: #fff7d8; font-size: 9px; white-space: nowrap; pointer-events: none; }
 .roommate-cat { text-align: center; }
 .roommate-cat b { position: absolute; left: 50%; bottom: -5px; transform: translateX(-50%); color: #fff8e9; text-shadow: 0 2px 0 #5b4034; font-size: var(--hud-text-size); white-space: nowrap; }
-.walking-cat.walking .cat-base { animation: cat-pose-walk-in .18s ease-out both; }
-.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-idle { animation: cat-pose-idle-in .18s ease-out both; }
-.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-walk { animation: cat-pose-status-walk-in .18s ease-out both; }
-.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-groom { animation: cat-pose-groom-in .18s ease-out both; }
-.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-yawn { animation: cat-pose-yawn-in .18s ease-out both; }
-.walking-cat.status-animation:not(.resting):not(.waking-up) .cat-base.cat-pose-sleep { animation: cat-pose-sleep-in .18s ease-out both; }
+/* Pixel frames cut straight to the next pose: no opacity fades or tweened offsets between frames. */
 .walking-cat.resting .cat-base { animation: cat-rest 2.4s ease-in-out infinite; }
 .walking-cat.head-shaking .cat-base { transform-origin: 58% 48%; animation: cat-head-shake .65s ease-in-out; }
 .walking-cat.jumping { animation: furniture-jump .65s ease-out; }
 .walking-cat b { position: absolute; left: 50%; bottom: -5px; padding: 3px 6px; transform: translateX(-50%); border: 2px solid var(--hud-outline); border-radius: 2px; background: var(--hud-surface); color: #5a3517; box-shadow: inset 0 0 0 1px var(--hud-trim), 2px 2px 0 rgba(58, 34, 20, .3); font-size: 9px; white-space: nowrap; }
 @keyframes furniture-jump { 48% { transform: translate(-50%, -79%) translateY(-58px); } }
 @keyframes cat-rest { 50% { translate: 0 1px; } }
-@keyframes cat-pose-walk-in { from { opacity: .64; } }
-@keyframes cat-pose-idle-in { from { opacity: .64; } }
-@keyframes cat-pose-status-walk-in { from { opacity: .64; } }
-@keyframes cat-pose-groom-in { from { opacity: .64; } }
-@keyframes cat-pose-yawn-in { from { opacity: .64; } }
-@keyframes cat-pose-sleep-in { from { opacity: .64; } }
 @keyframes cat-head-shake { 0%, 100% { translate: 0 0; } 20%, 60% { translate: -3px 0; } 40%, 80% { translate: 3px 0; } }
 
 .sleep-interrupt-layer { position: absolute; inset: 0; z-index: 90; display: grid; place-items: center; padding: 20px; background: rgba(57, 39, 37, .3); backdrop-filter: blur(2px); }
@@ -362,7 +359,8 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .bag-pocket { position: absolute; z-index: 2; right: 4px; bottom: 3px; left: 4px; height: 8px; border: 1px solid #a34e61; border-radius: 2px 2px 5px 5px; background: #ef8da0; }
 .bag-content { position: absolute; z-index: 3; top: -3px; left: 7px; font-size: 8px; opacity: 0; transform: translateY(6px); transition: transform 300ms 145ms cubic-bezier(.22, 1, .36, 1), opacity 150ms 150ms ease; }
 .bag-zipper { position: absolute; z-index: 6; top: 0; left: 9px; width: 3px; height: 7px; border: 1px solid #f2c66e; border-radius: 2px; background: #d69738; transform: translateX(0) rotate(-12deg); transition: transform 180ms cubic-bezier(.22, 1, .36, 1); }
-.dock-cart-item { position: absolute; z-index: 2; top: 2px; left: 13px; font-size: 8px; opacity: 0; transform: translateY(4px); }
+.dock-cart-item { position: absolute; z-index: 2; top: 3px; left: 12px; font-size: 8px; opacity: 0; transform: translateY(4px); }
+.dock-cart-item .pixel-icon, .bag-content .pixel-icon { filter: none; }
 .cart-wheel { position: absolute; z-index: 3; bottom: 3px; width: 5px; height: 5px; border: 1px solid #506079; border-radius: 50%; opacity: 0; }
 .cart-wheel::after { position: absolute; top: 0; left: 1px; width: 1px; height: 3px; background: #cad5df; content: ""; }.cart-wheel-left { left: 8px; }.cart-wheel-right { right: 5px; }
 .dock-paw { position: absolute; z-index: 2; width: 9px; height: 11px; border-radius: 55% 55% 48% 48%; background: #635184; box-shadow: inset 1px 1px rgba(255,255,255,.14), 0 1px 1px rgba(75,51,89,.2); transform-origin: center bottom; }
@@ -950,6 +948,20 @@ body.desktop-pomodoro-mini-body { background: transparent; }
 .toast { position: fixed; z-index: 250; left: 50%; bottom: 101px; max-width: calc(100vw - 30px); padding: 12px 17px; transform: translate(-50%, 20px); border: 2px solid #3f5b46; border-radius: 12px; background: rgba(66, 102, 76, .96); color: #fff; box-shadow: 0 5px 0 rgba(45, 72, 52, .65); opacity: 0; pointer-events: none; transition: opacity .14s ease, transform .18s var(--ease-out); font-size: 10px; }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 
+/* Keep the pet card and the dock from overlapping on mid-size windows: first slide the dock right, then stack. */
+@media (max-width: 1240px) {
+  .game-dock { left: auto; right: 20px; transform: none; }
+}
+@media (max-width: 880px) {
+  .pet-status { bottom: 104px; }
+  .game-dock { left: 50%; right: auto; transform: translateX(-50%); }
+}
+
+/* Strawberry rewards fly to the counter, which hops when they land. */
+.reward-flight { position: fixed; inset: 0; z-index: 280; pointer-events: none; }
+.reward-berry { position: absolute; width: 22px; height: 22px; opacity: 0; image-rendering: pixelated; will-change: transform, opacity; }
+.reward-amount { position: absolute; padding: 3px 6px; border: 2px solid var(--hud-outline); border-radius: 2px; background: #c9473d; color: #fff4df; box-shadow: inset 0 2px 0 #ec8a7a, 2px 2px 0 rgba(58, 34, 20, .3); font-family: "Press Start 2P", monospace; font-size: 10px; white-space: nowrap; opacity: 0; transform: translate(-50%, -50%); will-change: transform, opacity; }
+
 @media (max-width: 1000px) {
   .pet-status { width: 340px; }
   .game-dock button { min-width: 61px; }
@@ -998,7 +1010,7 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   .pomodoro-clock-card, .pomodoro-memory { padding: 14px; }
   .pomodoro-dial { width: min(300px, 76vw); padding: 15px; }
   .pomodoro-progress-shell { padding: 15px; }
-  .bar-hotspot::after { opacity: .86; transform: translate(-50%, 0); font-size: 9px; }
+  .bar-hotspot.room-hint::after { opacity: .86; transform: translate(-50%, 0); font-size: 11px; }
   .bar-workbench { grid-template-columns: 1fr; grid-template-areas: "center" "ingredients" "recipe"; }
   .bar-center { min-height: 350px; }
   .bar-ingredients > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -1078,7 +1090,7 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   .pet-status button:hover { background: #7f9f67; transform: translateY(-1px); }
   .game-dock button:hover { border-color: #d2b07c; background: #ecd8b2; }
   .game-dock button.active:hover { background: rgba(239, 201, 137, .4); }
-  .bar-hotspot:hover::after { opacity: 1; transform: translate(-50%, 0); }
+  .room-hint:hover::after { opacity: 1; transform: translate(-50%, 0); }
   .ingredient-card:hover { border-color: var(--berry-dark); box-shadow: 0 7px 0 #d8a9a2; transform: translateY(-2px); }
   .bar-ingredients > div > button:hover { border-color: var(--berry-dark); transform: translateY(-1px); }
 }

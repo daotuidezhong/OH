@@ -11,7 +11,7 @@ import { getTimePeriod } from "../app/game/time-period.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
 import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
-import { CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
+import { CAT_ANIMATION_TICK_MS, CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
 import { getWalkDirection, WALK_DIRECTION_ROW } from "../app/game/movement-direction.ts";
@@ -129,7 +129,7 @@ test("harvests produce into the backpack and cooks one crop into one dish", asyn
   assert.match(source, /produce: \{ \.\.\.current\.produce, \[dish\.cropId\]: current\.produce\[dish\.cropId\] - 1 \}/);
   assert.match(source, /inventory: \{ \.\.\.current\.inventory, \[dish\.id\]: current\.inventory\[dish\.id\] \+ 1 \}/);
   assert.doesNotMatch(source, /berries: current\.berries \+ crop\.reward/);
-  assert.match(source, /className="kitchen-hotspot"/);
+  assert.match(source, /className="kitchen-hotspot room-hint" data-hint="厨房烹饪"/);
   assert.match(source, /className="recipe-grid"/);
 });
 
@@ -377,7 +377,10 @@ test("ships transparent eight-direction sprite sheets for every cat", async () =
   }
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
-  assert.match(source, /const stepDirection = getWalkDirection\(from, destination\)[\s\S]*setDirection\(stepDirection\)[\s\S]*from = point/);
+  assert.match(source, /const startedAt = performance\.now\(\);[\s\S]*const sample = sampleWalk\(plan, Math\.max\(0, time - startedAt\)\)[\s\S]*if \(sample\.direction !== shownDirection\) \{ shownDirection = sample\.direction; setDirection\(sample\.direction\)/);
+  // Walking writes the position to the DOM each frame and commits it to the save once on arrival.
+  assert.match(source, /catElement\.style\.left = `\$\{point\.x\}%`/);
+  assert.doesNotMatch(source.slice(source.indexOf("function walkCatTo"), source.indexOf("function haltWalk")), /requestAnimationFrame\(animate\);[^}]*setGame/);
   assert.match(source, /WALK_DIRECTION_ROW\[direction\]/);
   assert.match(source, /className="cat-walk-sheet" src=\{pet\.walkSheet\}/);
   assert.match(css, /\.cat-walk-sprite \{[^}]*overflow: hidden/);
@@ -595,6 +598,9 @@ test("maps the two pet stats to all nine animation states", () => {
     assert.ok(animation.frames.length >= 5);
     assert.ok(animation.frames.every((frame) => frame.duration >= 90 && !("scale" in frame)));
     assert.ok(animation.frames.every((frame) => frame.pose !== "wake"));
+    // Standing-still animations never pace on walk frames or float above the floor.
+    assert.ok(animation.frames.every((frame) => frame.pose !== "walk" && !frame.x && Math.abs(frame.y ?? 0) <= 1), status);
+    assert.ok(animation.frames.every((frame) => frame.duration % CAT_ANIMATION_TICK_MS === 0), status);
     const restingPose = status === "low-high" ? "sleep" : "idle";
     assert.equal(animation.frames[0].pose, restingPose);
     assert.equal(animation.frames.at(-1).pose, restingPose);
@@ -603,6 +609,11 @@ test("maps the two pet stats to all nine animation states", () => {
   assert.equal(getCatStatusTransition("low-high", "high-low").at(-1).pose, "idle");
   assert.ok(getCatStatusTransition("high-high", "high-low").every((frame) => frame.pose !== "wake"));
   assert.ok(getCatStatusTransition("low-high", "high-low").some((frame) => frame.pose === "wake"));
+  for (const from of Object.keys(CAT_STATUS_ANIMATIONS)) {
+    for (const to of Object.keys(CAT_STATUS_ANIMATIONS)) {
+      assert.ok(getCatStatusTransition(from, to).every((frame) => frame.pose !== "walk" && !frame.x), `${from} -> ${to}`);
+    }
+  }
 });
 
 test("drains energy, raises sleepiness, and allows movement while energy remains", () => {
@@ -695,13 +706,29 @@ test("keeps every cat animation loaded and coordinates transitions", async () =>
   assert.match(source, /image\.decode\(\)\.catch/);
   assert.match(source, /const activePose: CatPose = resting \|\| lounging \? "sleep"/);
   assert.match(source, /const catAsset = scratching \? pet\.scratchFrames/);
-  assert.match(source, /setWalkDuration\(0\)[\s\S]*requestAnimationFrame\(animate\)/);
-  assert.match(source, /Math\.hypot\(destination\.x - from\.x, destination\.y - from\.y\) \* 14/);
+  assert.match(source, /const plan = planWalk\(\[start, \.\.\.path\], \{ width: room\?\.width[\s\S]*catElement\?\.getBoundingClientRect\(\)\.width[\s\S]*carried\?\.speed \?\? 0, carried\?\.stride \?\? 0\)/);
   assert.match(source, /const STATUS_IDLE_MS = 8000/);
   assert.match(source, /className=\{`cat-base cat-pose-\$\{activePose\}`\}[\s\S]*decoding="sync"/);
   assert.match(source, /const \[statusIdle, setStatusIdle\] = useState\(true\)/);
   assert.match(source, /statusIdle[\s\S]*setStatusIdle\(false\)[\s\S]*setStatusIdle\(true\)/);
   assert.match(source, /desiredCatStatus !== catStatus[\s\S]*getCatStatusTransition\(catStatus, desiredCatStatus\)/);
+  assert.match(source, /WANDER_CHANCE\[getCatStatLevel\(game\.energy\)\][\s\S]*!statusIdle[\s\S]*wanderNearby\(\)/);
+  assert.match(source, /function wanderNearby\(\)[\s\S]*getWalkPath\(start, target[\s\S]*walkCatTo\(target\)/);
+  // Pixel frames cut straight between poses: no opacity fade-ins, no tweened offsets.
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.match(css, /\.walking-cat \{ transition: none; \}/);
+  assert.doesNotMatch(css, /@keyframes cat-pose-[a-z-]+-in|opacity: \.64/);
+  assert.doesNotMatch(css, /\.scene-cat img \{[^}]*translate \.\d+s/);
+  // Idle breathes on a second frame that keeps the paws planted.
+  assert.match(source, /idleBreathe: "\/game\/cat-orange-idle-breathe\.png"/);
+  assert.match(source, /default: return breathe \? cat\.idleBreathe : cat\.idle/);
+  // One plan covers the whole path, so corners never pause; arrival settles on the paws-together frame.
+  assert.match(source, /const walkSheetFrame = \(walkFrame \+ WALK_REST_FRAME\[direction\]\) % 4/);
+  assert.match(source, /if \(!sample\.done\) \{ motionFrame\.current = window\.requestAnimationFrame\(animate\); return; \}[\s\S]*setWalkSettling\(true\)[\s\S]*WALK_SETTLE_MS/);
+  for (const cat of ["orange", "cow", "white"]) {
+    const png = await readFile(new URL(`../public/game/cat-${cat}-idle-breathe.png`, import.meta.url));
+    assert.equal(png.readUInt32BE(16), 418);
+  }
   assert.doesNotMatch(source, /<img className="cat-base" key=\{/);
 });
 
@@ -747,9 +774,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.13"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.14"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.13"[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"[\s\S]*三只猫保持原始体型[\s\S]*version: "0\.9\.10"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.14"[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
@@ -759,9 +786,13 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"[\s\S]*storage:export[\s\S]*storage:import/);
   assert.match(source, /数据备份[\s\S]*导出 \.ohbackup 文件[\s\S]*选择备份并导入/);
   assert.match(source, /TIME_PERIOD_LABELS[\s\S]*WEATHER_ICONS[\s\S]*className="scene-context"[\s\S]*"OH"[\s\S]*草莓小院/);
-  assert.match(source, /getWeatherIcon[\s\S]*weather === "clear" && period === "night" \? "🌙"[\s\S]*getWeatherIcon\(weather\.kind, timePeriod\)/);
+  assert.match(source, /getWeatherIcon[\s\S]*weather === "clear" && period === "night" \? "moon"[\s\S]*<PixelIcon name=\{getWeatherIcon\(weather\.kind, timePeriod\)\}/);
   assert.match(source, /open-meteo[\s\S]*cache: "no-store"[\s\S]*5 \* 60 \* 1000[\s\S]*visibilitychange/);
-  assert.match(source, /className="scene-context-home"[\s\S]*🏠[\s\S]*dock-record-icon[\s\S]*record-book[\s\S]*dock-bag-icon[\s\S]*bag-body[\s\S]*dock-shop-icon[\s\S]*🛒[\s\S]*dock-pets-icon[\s\S]*dock-paw-one[\s\S]*dock-decorate-icon[\s\S]*🪑/);
+  assert.match(source, /className="scene-context-home"[\s\S]*<PixelIcon name="home"[\s\S]*data-counter="streak"[\s\S]*<PixelIcon name="flame"[\s\S]*data-counter="berries"[\s\S]*<PixelIcon name="strawberry"[\s\S]*dock-record-icon[\s\S]*record-book[\s\S]*dock-bag-icon[\s\S]*bag-body[\s\S]*dock-shop-icon[\s\S]*<PixelIcon name="cart"[\s\S]*dock-pets-icon[\s\S]*dock-paw-one[\s\S]*dock-decorate-icon[\s\S]*<PixelIcon name="chair"/);
+  assert.doesNotMatch(source, /[🏠🛒🪑💾🔥]/u);
+  assert.match(css, /\.game-hud \{[^}]*justify-content: flex-start;[^}]*gap: 10px/);
+  assert.match(css, /@media \(max-width: 1240px\) \{\s*\.game-dock \{ left: auto; right: 20px; transform: none; \}/);
+  assert.match(css, /\.room-hint::after \{[^}]*content: attr\(data-hint\)/);
   assert.match(css, /--hud-surface: #f1e1c3;[\s\S]*--hud-border: var\(--hud-wood-light\) var\(--hud-wood-dark\)[\s\S]*\.scene-context \{[^}]*border-radius: 5px[\s\S]*\.scene-context-home[^}]*Segoe UI Emoji[\s\S]*\.game-dock \.dock-icon[^}]*font-size: 24px/);
   assert.match(css, /\.scene-context, \.hud-counters > div, \.pet-status, \.game-dock, \.decorate-tools \{[^}]*border: 3px solid;[^}]*background: var\(--hud-paper-grain\), var\(--hud-surface\);[^}]*box-shadow: var\(--hud-shadow\)/);
   for (const animation of ["dock-orange-ring", "dock-cart-roll", "dock-cart-wheel", "dock-paw-one", "dock-paw-two", "dock-chair-lift"]) assert.match(css, new RegExp(animation));
@@ -806,7 +837,7 @@ test("replaces the photo board with a wall planner without changing room, yard, 
   assert.match(css, /@media \(prefers-reduced-motion: reduce\)[\s\S]*\.planner-confetti \{ display: none; \}/);
   assert.doesNotMatch(source, /scene\s*=\s*["']planner|scene:\s*["']planner/);
   assert.match(source, /open-meteo[\s\S]*5 \* 60 \* 1000[\s\S]*addEventListener\("focus"[\s\S]*addEventListener\("online"[\s\S]*visibilitychange/);
-  assert.match(source, /weather === "clear" && period === "night" \? "🌙"/);
+  assert.match(source, /weather === "clear" && period === "night" \? "moon"/);
   assert.match(electronMain, /fs\.rmSync\(path\.join\(userDataRoot, "photo-board-photos"\)/);
   assert.doesNotMatch(electronMain, /photo-board:select|url\.hostname === "photo-board"/);
   assert.match(electronMain, /planner:reminders[\s\S]*new Notification/);
@@ -929,7 +960,8 @@ test("stores sleep independently, reserves beds, and animates every adopted pet"
   assert.match(switchBody, /const targetSleep = game\.petSleep\[id\][\s\S]*sleepEndsAt: settled\.sleepEndsAt[\s\S]*sleepRest: settled\.sleepRest/);
   assert.match(switchBody, /catFurniture: getSleepRemainingMs\(currentTargetSleep\.endsAt, now\) > 0 \? currentTargetSleep\.furnitureId : null/);
   assert.match(source, /const roommateSleep = game\.petSleep\[id\][\s\S]*const roommateStatus = getCatStatus[\s\S]*getLoopedStatusFrame\(CAT_STATUS_ANIMATIONS\[roommateStatus\]\.frames[\s\S]*const roommateAsset/);
-  assert.match(source, /roommateFrame\.pose === "walk"[\s\S]*cat\.walkFrames[\s\S]*roommateFrame\.pose === "groom"[\s\S]*cat\.groomFrames/);
+  assert.match(source, /const roommateAsset = roommateSleepRemaining > 0 \? cat\.sleep : getStatusPoseAsset\(cat, roommateFrame, isBreathRising\(/);
+  assert.match(source, /function getStatusPoseAsset[\s\S]*case "groom": return cat\.groomFrames[\s\S]*case "scratch": return cat\.scratchFrames/);
   assert.doesNotMatch(source, /onClick=\{cycleControlledPet\} disabled=\{resting\}/);
 });
 
