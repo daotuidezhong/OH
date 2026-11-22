@@ -824,7 +824,7 @@ test("opens the Bilibili theater prototype in an isolated window with pinned Vid
   assert.match(electronMain, /ipcMain\.on\("theater:open"[\s\S]*event\.sender !== window\.webContents[\s\S]*openTheaterWindow/);
 
   // 第三方网页窗口：独立分区、沙箱、无 OH preload。
-  assert.match(theater, /partition: THEATER_PARTITION,\s*contextIsolation: true,\s*nodeIntegration: false,\s*sandbox: true/);
+  assert.match(theater, /partition = THEATER_PARTITION[\s\S]*partition,\s*contextIsolation: true,\s*nodeIntegration: false,\s*sandbox: true/);
   assert.doesNotMatch(theater, /preload:/);
   assert.match(theater, /callback\(permission === "fullscreen"\)/);
   assert.match(theater, /dom-ready[\s\S]*injectVideoTogether/);
