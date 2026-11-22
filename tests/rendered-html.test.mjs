@@ -819,7 +819,16 @@ test("opens the Bilibili theater prototype in an isolated window with pinned Vid
   const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
   const { isBilibiliUrl, toChromeUserAgent } = createRequire(import.meta.url)("../electron/theater-rules.cjs");
 
-  assert.match(source, /desktopTheaterAvailable && <button className="theater-dock"[\s\S]*theater\?\.open\(\)[\s\S]*放映室/);
+  // 入口是房间里的小电视，不再放在底部菜单。
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /theater-dock|<b>放映室<\/b>/);
+  assert.match(source, /className="theater-tv" onPointerDown=\{\(event\) => \{ event\.stopPropagation\(\); openTheater\(\); \}\} aria-label="进入放映室"/);
+  assert.match(source, /furniture-tv\.png[\s\S]*theater-tv-on" src="\/game\/furniture-tv-on\.png"[\s\S]*<span>进入放映室<\/span>/);
+  assert.match(source, /function openTheater\(\) \{\s*if \(window\.gameUpdater\?\.theater\) window\.gameUpdater\.theater\.open\(\);\s*else setToast\("放映室目前只在 Windows 版可用"\)/);
+  assert.match(css, /\.theater-tv:hover \.theater-tv-on \{ opacity: 1; \}[\s\S]*\.theater-tv:hover span \{ opacity: 1;/);
+  await access(new URL("../public/game/furniture-tv.png", import.meta.url));
+  await access(new URL("../public/game/furniture-tv-on.png", import.meta.url));
+  assert.ok(ROOM_FIXED_OBSTACLES.some((rect) => rect.left <= 63.8 && rect.right >= 63.8 && rect.bottom >= 43));
   assert.match(preload, /theater: \{\s*open: \(\) => ipcRenderer\.send\("theater:open"\)/);
   assert.match(electronMain, /ipcMain\.on\("theater:open"[\s\S]*event\.sender !== window\.webContents[\s\S]*openTheaterWindow/);
 

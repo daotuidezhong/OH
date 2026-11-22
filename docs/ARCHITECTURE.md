@@ -110,7 +110,7 @@ sequenceDiagram
 
 ### 4.6 放映室（验证版）
 
-仅 Windows 版提供。底部菜单“放映室”通过 `theater:open` 让主进程打开独立窗口：使用独立会话分区 `persist:oh-theater`、沙箱、无 OH preload，只允许 `bilibili.com` / `b23.tv` 的 https 页面在窗口内跳转，其余链接交给系统浏览器。每次 B站页面 `dom-ready` 时注入 `electron/vendor/videotogether/` 中固定版本的 VideoTogether（加载器已去掉从 CDN 拉取最新代码的逻辑）。两人分别登录自己的 B站账号，在悬浮面板中用同一房间名和密码建房 / 加入即可同步播放。当前同步走 VideoTogether 公共服务器，正式版计划换成 OH 自己的 Cloudflare 房间。
+入口是房间里窗户与门之间的像素小电视（`public/game/furniture-tv.png` / `furniture-tv-on.png`），悬停时屏幕亮起并提示“进入放映室”，同时登记为房间固定障碍。仅 Windows 版可进入，网页版点击会提示“放映室目前只在 Windows 版可用”。点击后通过 `theater:open` 让主进程打开独立窗口：使用独立会话分区 `persist:oh-theater`、沙箱、无 OH preload，只允许 `bilibili.com` / `b23.tv` 的 https 页面在窗口内跳转，其余链接交给系统浏览器。每次 B站页面 `dom-ready` 时注入 `electron/vendor/videotogether/` 中固定版本的 VideoTogether（加载器已去掉从 CDN 拉取最新代码的逻辑）。两人分别登录自己的 B站账号，在悬浮面板中用同一房间名和密码建房 / 加入即可同步播放。当前同步走 VideoTogether 公共服务器，正式版计划换成 OH 自己的 Cloudflare 房间。
 
 单机测试：未打包运行 `npx electron . --theater-test`，会使用独立数据目录 `%APPDATA%\OH-theater-test`（不读写已安装 OH 的存档），点“放映室”时左右并排打开 A、B 两个窗口，各自独立登录，模拟两个人。
 

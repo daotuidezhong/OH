@@ -1175,7 +1175,6 @@ export default function Home() {
   const pomodoroStyle = { "--pomodoro-progress": `${pomodoroProgress * 360}deg` } as CSSProperties;
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
-  const desktopTheaterAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.theater);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -1261,6 +1260,11 @@ export default function Home() {
     setGame((current) => ({ ...current, pomodoro: skipPomodoroBreak(current.pomodoro) }));
     setPomodoroAlert(null);
     setToast("休息已结束，准备好后开始下一次专注吧");
+  }
+
+  function openTheater() {
+    if (window.gameUpdater?.theater) window.gameUpdater.theater.open();
+    else setToast("放映室目前只在 Windows 版可用");
   }
 
   function openOverlay(id: Exclude<OverlayId, null>) {
@@ -2080,6 +2084,13 @@ export default function Home() {
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
           {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
+          {game.scene === "room" && (
+            <button type="button" data-interactive className="theater-tv" onPointerDown={(event) => { event.stopPropagation(); openTheater(); }} aria-label="进入放映室">
+              <img src="/game/furniture-tv.png" alt="" draggable={false} />
+              <img className="theater-tv-on" src="/game/furniture-tv-on.png" alt="" draggable={false} />
+              <span>进入放映室</span>
+            </button>
+          )}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
             const plot = game.farmPlots[index];
@@ -2239,7 +2250,6 @@ export default function Home() {
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
-          {desktopTheaterAvailable && <button className="theater-dock" title="和伙伴一起看 B站（验证版）" onClick={() => window.gameUpdater?.theater?.open()}><span>🎬</span><b>放映室</b></button>}
           <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span>🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 
