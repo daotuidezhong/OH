@@ -704,7 +704,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.7\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
+  assert.match(packageJson, /"version": "0\.8\.0"[\s\S]*"appId": "com\.berryworkout\.island"[\s\S]*"productName": "OH"/);
   assert.match(preload, /storage:[\s\S]*sendSync\("storage:load"[\s\S]*send\("storage:save"/);
 });
 
