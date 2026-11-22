@@ -13,6 +13,9 @@ contextBridge.exposeInMainWorld("gameUpdater", {
     load: (key) => ipcRenderer.sendSync("storage:load", key),
     save: (key, value) => ipcRenderer.send("storage:save", key, value),
   },
+  theater: {
+    open: () => ipcRenderer.send("theater:open"),
+  },
   pomodoro: {
     schedule: (endsAt, phase) => ipcRenderer.send("pomodoro:schedule", endsAt, phase),
     cancel: () => ipcRenderer.send("pomodoro:cancel"),

@@ -65,6 +65,7 @@ project_009_草莓打卡屋/
 | `DATA-LOCAL` | 本地数据 | 保存设备编号、游戏状态和桌面版历史记录 | `app/page.tsx` 中的 `localStorage` 逻辑 |
 | `WEB` | 网页运行层 | vinext 构建、Worker 运行、Sites 资源绑定 | `vite.config.ts`, `worker/index.ts`, `.openai/hosting.json` |
 | `DESKTOP` | Windows 运行层 | 复用游戏界面、创建窗口、本地协议、应用更新 | `desktop/`, `electron/` |
+| `THEATER` | 放映室（验证版） | 独立窗口打开 B站，注入固定版本 VideoTogether 实现两人同步观看 | `electron/theater.cjs`, `electron/theater-rules.cjs`, `electron/vendor/videotogether/` |
 | `ASSETS` | 游戏素材 | 房间、猫咪动画、家具、食品、鼠标指针 | `public/game/` |
 | `TEST` | 回归检查 | 构建产物、规则、资源与关键页面结构检查 | `tests/rendered-html.test.mjs` |
 | `DOCS` | 项目文档 | 架构基线、问题清单、设计验收记录 | `docs/` |
@@ -107,6 +108,10 @@ sequenceDiagram
 
 `app/game/pomodoro.ts` 集中定义 25 分钟专注、5 分钟休息、每次 5 颗草莓奖励，以及开始、暂停、恢复和跨后台结算规则。计时使用绝对结束时间，不依赖前台逐秒累减；状态随 `berry-workout-game` 保存。网页版通过系统通知提示，Windows 版由 Electron 主进程调度本地通知，窗口最小化后仍会继续计时。
 
+### 4.6 放映室（验证版）
+
+仅 Windows 版提供。底部菜单“放映室”通过 `theater:open` 让主进程打开独立窗口：使用独立会话分区 `persist:oh-theater`、沙箱、无 OH preload，只允许 `bilibili.com` / `b23.tv` 的 https 页面在窗口内跳转，其余链接交给系统浏览器。每次 B站页面 `dom-ready` 时注入 `electron/vendor/videotogether/` 中固定版本的 VideoTogether（加载器已去掉从 CDN 拉取最新代码的逻辑）。两人分别登录自己的 B站账号，在悬浮面板中用同一房间名和密码建房 / 加入即可同步播放。当前同步走 VideoTogether 公共服务器，正式版计划换成 OH 自己的 Cloudflare 房间。
+
 ## 5. 网页版与桌面版差异
 
 | 能力 | 网页版 | Windows 版 |
@@ -117,6 +122,7 @@ sequenceDiagram
 | 天气 | 浏览器直接请求天气服务 | 同网页版 |
 | 更新 | 随网站发布更新 | `electron-updater` 检查 GitHub Releases |
 | 运行入口 | `worker/index.ts` | `electron/main.cjs` |
+| 放映室 | 不提供 | B站独立窗口 + VideoTogether 同步（验证版） |
 
 ## 6. 修改边界
 
@@ -176,6 +182,7 @@ sequenceDiagram
 | 2026-08-10 | `YARD-FARM` | 新增双向院门、四天气四时段院子、10 件家具和 12 格真实时间种植循环；旧存档自动迁移到 v3 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `ASSETS` | 网页、规则、资源与桌面渲染构建验收 |
 | 2026-08-18 | `COCKTAIL-BAR` | 新增商店调酒配料、吧台调酒流程、10 张配方图鉴和库存存档迁移 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `ASSETS`, `TEST` | 网页构建与 40 项回归检查通过；桌面和移动端交互验收通过 |
 | 2026-08-25 | `POMODORO` | 新增 25+5 番茄钟、每循环 5 草莓奖励、累计记忆、完成动画和网页／Windows 后台提醒 | `GAME-UI`, `GAME-RULES`, `DATA-LOCAL`, `DESKTOP`, `TEST` | 网页构建与自动回归检查通过；桌面通知桥接已覆盖 |
+| 2026-11-22 | `THEATER` | 新增 Windows 版 B站放映室验证版：独立沙箱窗口 + 固定版本 VideoTogether 注入 | `GAME-UI`, `DESKTOP`, `THEATER`, `TEST` | 43 项回归检查通过；Linux 下 Electron 冒烟测试确认注入、防重复注入与外链拦截；真实 B站与 Windows 打包待验证 |
 
 ### 院子与种植状态
 

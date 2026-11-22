@@ -4,6 +4,7 @@ const path = require("node:path");
 const { pathToFileURL } = require("node:url");
 const { loadDesktopPlaylist } = require("./netease.cjs");
 const { createStorage } = require("./storage.cjs");
+const { openTheaterWindow } = require("./theater.cjs");
 
 app.setName("OH");
 app.setAppUserModelId("com.berryworkout.island");
@@ -73,6 +74,13 @@ app.whenReady().then(() => {
     }, delay);
   });
   ipcMain.on("pomodoro:cancel", (event) => { if (event.sender === window.webContents) cancelPomodoroTimer(); });
+  ipcMain.on("theater:open", (event) => {
+    if (event.sender !== window.webContents) return;
+    openTheaterWindow({
+      parent: window,
+      icon: app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png"),
+    });
+  });
   autoUpdater.autoDownload = false;
   autoUpdater.on("update-available", (info) => sendUpdate({
     phase: "available",

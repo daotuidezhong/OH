@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // 第三方固定版本脚本，原样保留，不做 lint。
+    "electron/vendor/**",
   ]),
 ]);
 

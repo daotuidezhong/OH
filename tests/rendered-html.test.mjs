@@ -807,3 +807,45 @@ test("server-renders the full-screen game without the old movement hint", async 
   assert.match(html, /的困倦值/);
   assert.doesNotMatch(html, /weather-chip|天气同步中|room-help|点击地面移动/);
 });
+
+test("opens the Bilibili theater prototype in an isolated window with pinned VideoTogether", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const electronMain = await readFile(new URL("../electron/main.cjs", import.meta.url), "utf8");
+  const preload = await readFile(new URL("../electron/preload.cjs", import.meta.url), "utf8");
+  const theater = await readFile(new URL("../electron/theater.cjs", import.meta.url), "utf8");
+  const loader = await readFile(new URL("../electron/vendor/videotogether/loader.website.js", import.meta.url), "utf8");
+  const vt = await readFile(new URL("../electron/vendor/videotogether/vt.zh-cn.website.js", import.meta.url), "utf8");
+  const license = await readFile(new URL("../electron/vendor/videotogether/LICENSE", import.meta.url), "utf8");
+  const packageJson = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+  const { isBilibiliUrl, toChromeUserAgent } = createRequire(import.meta.url)("../electron/theater-rules.cjs");
+
+  assert.match(source, /desktopTheaterAvailable && <button className="theater-dock"[\s\S]*theater\?\.open\(\)[\s\S]*放映室/);
+  assert.match(preload, /theater: \{\s*open: \(\) => ipcRenderer\.send\("theater:open"\)/);
+  assert.match(electronMain, /ipcMain\.on\("theater:open"[\s\S]*event\.sender !== window\.webContents[\s\S]*openTheaterWindow/);
+
+  // 第三方网页窗口：独立分区、沙箱、无 OH preload。
+  assert.match(theater, /partition: THEATER_PARTITION,\s*contextIsolation: true,\s*nodeIntegration: false,\s*sandbox: true/);
+  assert.doesNotMatch(theater, /preload:/);
+  assert.match(theater, /callback\(permission === "fullscreen"\)/);
+  assert.match(theater, /dom-ready[\s\S]*injectVideoTogether/);
+
+  // 只在 B站注入，且只放行 https。
+  assert.equal(isBilibiliUrl("https://www.bilibili.com/video/BV1xx411c7mD"), true);
+  assert.equal(isBilibiliUrl("https://b23.tv/abc"), true);
+  assert.equal(isBilibiliUrl("https://passport.bilibili.com/login"), true);
+  assert.equal(isBilibiliUrl("http://www.bilibili.com/"), false);
+  assert.equal(isBilibiliUrl("https://evilbilibili.com/"), false);
+  assert.equal(isBilibiliUrl("https://bilibili.com.evil.example/"), false);
+  assert.equal(
+    toChromeUserAgent("Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) OH/0.7.0 Chrome/138.0.0.0 Electron/37.2.6 Safari/537.36"),
+    "Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+  );
+
+  // VideoTogether 固定版本：加载器不再从 CDN 拉取 vt.js。
+  assert.match(loader, /OH patch: vt\.js 由 OH 主进程从本地固定版本注入/);
+  assert.doesNotMatch(loader, /getCdnPath|release\/vt\./);
+  assert.match(vt, /const vtRuntime = `website`/);
+  assert.match(license, /MIT License[\s\S]*VideoTogether/);
+  assert.ok(packageJson.build.files.includes("electron/vendor/videotogether/*.js"));
+  assert.ok(packageJson.build.files.includes("electron/vendor/videotogether/LICENSE"));
+});

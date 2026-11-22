@@ -132,6 +132,7 @@ declare global {
       install: () => void;
       version: () => Promise<string>;
       storage: { load: (key: string) => string | null; save: (key: string, value: string) => void };
+      theater?: { open: () => void };
       pomodoro?: {
         schedule: (endsAt: number, phase: PomodoroPhase) => void;
         cancel: () => void;
@@ -1174,6 +1175,7 @@ export default function Home() {
   const pomodoroStyle = { "--pomodoro-progress": `${pomodoroProgress * 360}deg` } as CSSProperties;
   const pomodoroActive = game.pomodoro.status === "running";
   const desktopPomodoroAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.pomodoro);
+  const desktopTheaterAvailable = typeof window !== "undefined" && Boolean(window.gameUpdater?.theater);
   const statusFrames = statusTransition ?? CAT_STATUS_ANIMATIONS[catStatus].frames;
   const currentStatusFrame: CatAnimationFrame = statusIdle
     ? { pose: catStatus === "low-high" ? "sleep" : "idle", duration: STATUS_IDLE_MS }
@@ -2237,6 +2239,7 @@ export default function Home() {
           <button className={overlay === "bag" ? "active" : ""} onClick={() => openOverlay("bag")}><span>🎒</span><b>背包</b><i>{totalBackpackItems}</i></button>
           <button className={overlay === "shop" ? "active" : ""} onClick={() => openOverlay("shop")}><span>🛒</span><b>商店</b></button>
           <button className={overlay === "pets" ? "active" : ""} onClick={() => openOverlay("pets")}><span>🐾</span><b>伙伴</b></button>
+          {desktopTheaterAvailable && <button className="theater-dock" title="和伙伴一起看 B站（验证版）" onClick={() => window.gameUpdater?.theater?.open()}><span>🎬</span><b>放映室</b></button>}
           <button className={decorating ? "active" : ""} disabled={game.scene === "yard"} onClick={() => { setOverlay(null); setDecorating((value) => !value); setJumping(false); resetStatusAnimation(); }}><span>🪑</span><b>{game.scene === "yard" ? "回屋布置" : "布置"}</b></button>
         </nav>
 

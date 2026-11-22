@@ -53,6 +53,8 @@
     },
     "files": [
       "electron/*.cjs",
+      "electron/vendor/videotogether/*.js",
+      "electron/vendor/videotogether/LICENSE",
       "package.json"
     ],
     "extraResources": [
