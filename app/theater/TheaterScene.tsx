@@ -1,0 +1,282 @@
+"use client";
+
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import {
+  cleanChatText, CHAT_MAX_LENGTH, FEET_TOKEN, formatRoomCode, generateRoomCode,
+  normalizeRoomCode, parseTheaterMessage, type TheaterConfig,
+} from "./protocol";
+import { HEAD_ANCHOR, SeatsArt } from "./SeatsArt";
+
+type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[] };
+type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
+type Rect = { x: number; y: number; width: number; height: number };
+
+export type TheaterBridge = {
+  init: () => Promise<TheaterInit | null>;
+  setConfig: (config: TheaterConfig | null) => Promise<boolean>;
+  setScreen: (rect: Rect, enlarged: boolean) => void;
+  send: (text: string) => Promise<boolean | null>;
+  navigate: (action: "home" | "back") => void;
+  onState: (callback: (status: TheaterStatus) => void) => () => void;
+  onEnlarge: (callback: (enlarged: boolean) => void) => () => void;
+};
+
+declare global {
+  interface Window { ohTheater?: TheaterBridge }
+}
+
+type Bubble = { id: number; side: "left" | "right"; text: string; at: number };
+
+const BUBBLE_MS = 7000;
+const TALK_MS = 2600;
+const HOLD_MS = 4800;
+const ARRIVE_MS = 1400;
+const EMPTY_STATUS: TheaterStatus = { role: "loading", inRoom: false, members: 0, hasVideo: false, canGoBack: false, messages: [] };
+
+let bubbleSeq = 0;
+
+function PairingCard({ onCreate, onJoin }: { onCreate: () => void; onJoin: (code: string) => void }) {
+  const [input, setInput] = useState("");
+  const code = normalizeRoomCode(input);
+  return (
+    <div className="pairing-layer" role="dialog" aria-modal="true" aria-labelledby="pairing-title">
+      <section className="pairing-card">
+        <p className="pairing-eyebrow">OH CINEMA · 两人放映厅</p>
+        <h1 id="pairing-title">第一次来，先把两张票配成对</h1>
+        <div className="pairing-options">
+          <div className="pairing-option">
+            <h2>我来开放映厅</h2>
+            <p>生成一个放映厅码，发给 TA。</p>
+            <button type="button" className="pairing-primary" onClick={onCreate}>创建放映厅</button>
+          </div>
+          <form className="pairing-option" onSubmit={(event) => { event.preventDefault(); if (code) onJoin(code); }}>
+            <h2>TA 已经开好了</h2>
+            <p>输入 TA 发来的 6 位放映厅码。</p>
+            <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="例如 K7Q 2MX" maxLength={9} aria-label="放映厅码" autoComplete="off" spellCheck={false} />
+            <button type="submit" className="pairing-secondary" disabled={!code}>加入放映厅</button>
+          </form>
+        </div>
+        <p className="pairing-note">配对一次就好，以后打开放映厅会自动入座。</p>
+      </section>
+    </div>
+  );
+}
+
+export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge }) {
+  const bridge = bridgeProp ?? (typeof window !== "undefined" ? window.ohTheater : undefined);
+  const [init, setInit] = useState<TheaterInit | null>(null);
+  const [config, setConfig] = useState<TheaterConfig | null>(null);
+  const [status, setStatus] = useState<TheaterStatus>(EMPTY_STATUS);
+  const [bubbles, setBubbles] = useState<Bubble[]>([]);
+  const [holdUntil, setHoldUntil] = useState(0);
+  const [arrivedAt, setArrivedAt] = useState(0);
+  const [enlarged, setEnlarged] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [now, setNow] = useState(() => Date.now());
+  const [notice, setNotice] = useState("");
+  const [copied, setCopied] = useState(false);
+  const surfaceRef = useRef<HTMLDivElement>(null);
+  const partnerWasOnline = useRef(false);
+
+  const partnerOnline = Boolean(config && status.inRoom && status.members >= 2);
+  const holding = partnerOnline && holdUntil > now;
+
+  useEffect(() => {
+    if (!bridge) return;
+    bridge.init().then((value) => {
+      if (!value) return;
+      setInit(value);
+      setConfig(value.config);
+    });
+  }, [bridge]);
+
+  const addBubble = useCallback((side: Bubble["side"], text: string) => {
+    const at = Date.now();
+    setBubbles((current) => [...current.filter((bubble) => bubble.side !== side || at - bubble.at < BUBBLE_MS).slice(-4), { id: (bubbleSeq += 1), side, text, at }]);
+  }, []);
+
+  useEffect(() => {
+    if (!bridge) return;
+    const offState = bridge.onState((next) => {
+      setStatus(next);
+      for (const { msg } of next.messages) {
+        const message = parseTheaterMessage(msg);
+        if (!message) continue;
+        if (message.kind === "feet") setHoldUntil(Date.now() + HOLD_MS);
+        else addBubble("left", message.text);
+      }
+    });
+    const offEnlarge = bridge.onEnlarge((next) => setEnlarged(next));
+    return () => { offState(); offEnlarge(); };
+  }, [bridge, addBubble]);
+
+  // TA 上线：粉色玩偶“刷新”到座位上
+  useEffect(() => {
+    if (partnerOnline && !partnerWasOnline.current) {
+      setArrivedAt(Date.now());
+      setNotice("TA 来啦，坐在你左边");
+    }
+    if (!partnerOnline && partnerWasOnline.current) setNotice("TA 暂时离开了座位");
+    partnerWasOnline.current = partnerOnline;
+  }, [partnerOnline]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(() => setNotice(""), 3200);
+    return () => window.clearTimeout(timer);
+  }, [notice]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      const tick = Date.now();
+      setNow(tick);
+      setBubbles((current) => (current.some((bubble) => tick - bubble.at >= BUBBLE_MS) ? current.filter((bubble) => tick - bubble.at < BUBBLE_MS) : current));
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  // 把银幕位置告诉主进程，B站画面贴在这里。
+  useLayoutEffect(() => {
+    const surface = surfaceRef.current;
+    if (!bridge || !surface) return;
+    const report = () => {
+      const rect = surface.getBoundingClientRect();
+      bridge.setScreen({ x: rect.left, y: rect.top, width: config ? rect.width : 0, height: config ? rect.height : 0 }, enlarged);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(surface);
+    window.addEventListener("resize", report);
+    return () => { observer.disconnect(); window.removeEventListener("resize", report); };
+  }, [bridge, enlarged, config]);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setEnlarged(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const saveConfig = async (next: TheaterConfig | null) => {
+    if (!bridge) return;
+    if (await bridge.setConfig(next)) setConfig(next);
+  };
+
+  const sendChat = async (event: FormEvent) => {
+    event.preventDefault();
+    const text = cleanChatText(draft);
+    if (!text || !bridge) return;
+    setDraft("");
+    if (await bridge.send(text)) addBubble("right", text);
+    else setNotice("消息没发出去，稍后再试");
+  };
+
+  const holdFeet = async () => {
+    if (!bridge || !partnerOnline) return;
+    setHoldUntil(Date.now() + HOLD_MS);
+    await bridge.send(FEET_TOKEN);
+  };
+
+  const copyCode = async () => {
+    if (!config) return;
+    try {
+      await navigator.clipboard.writeText(config.code);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1600);
+    } catch {
+      setNotice(`放映厅码：${formatRoomCode(config.code)}`);
+    }
+  };
+
+  const talking = (side: Bubble["side"]) => bubbles.some((bubble) => bubble.side === side && now - bubble.at < TALK_MS);
+  const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : "等 TA 入座…";
+  const latestPartner = [...bubbles].reverse().find((bubble) => bubble.side === "left");
+
+  return (
+    <main className={`theater ${enlarged ? "is-enlarged" : ""} ${holding ? "is-holding" : ""}`} data-partner={partnerOnline ? "online" : "offline"}>
+      <div className="theater-room" aria-hidden="true">
+        <div className="room-ceiling" />
+        <div className="screen-spill" />
+        <div className="projector-beam"><i /><i /><i /><i /><i /><i /><i /><i /></div>
+        <div className="aisle-lights aisle-left"><i /><i /><i /><i /></div>
+        <div className="aisle-lights aisle-right"><i /><i /><i /><i /></div>
+      </div>
+
+      <header className="theater-hud">
+        {config && (
+          <div className="ticket">
+            <span className="ticket-label">放映厅{init?.testMode ? ` · 测试 ${init.label}` : ""}</span>
+            <button type="button" className="ticket-code" onClick={copyCode} title="复制放映厅码发给 TA">{copied ? "已复制" : formatRoomCode(config.code)}</button>
+            <span className={`ticket-status ${partnerOnline ? "online" : ""}`}><i />{seatStatus}</span>
+            {!init?.testMode && <button type="button" className="ticket-change" onClick={() => { if (window.confirm("更换放映厅后需要和 TA 重新配对，确定吗？")) saveConfig(null); }}>更换</button>}
+          </div>
+        )}
+        {config && (
+          <nav className="screen-controls" aria-label="银幕">
+            <button type="button" onClick={() => bridge?.navigate("back")} disabled={!status.canGoBack}>后退</button>
+            <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
+            <button type="button" className="enlarge-button" onClick={() => setEnlarged(true)}>放大银幕</button>
+          </nav>
+        )}
+      </header>
+
+      <section className="stage">
+        <div className="curtain curtain-left" aria-hidden="true" />
+        <div className="curtain curtain-right" aria-hidden="true" />
+        <div className="valance" aria-hidden="true" />
+        <div className="screen-wrap">
+          <div className="screen-frame">
+            <div className="screen-surface" ref={surfaceRef} aria-label="银幕：点击放大">
+              {!config && <div className="screen-idle"><b>OH CINEMA</b><span>配对后开始放映</span></div>}
+            </div>
+          </div>
+          {config && !enlarged && <p className="screen-hint">点击银幕放大，挑片、拖进度都在大银幕里</p>}
+        </div>
+      </section>
+
+      <section className="seats" aria-label="座位">
+        <SeatsArt
+          partner={{ visible: partnerOnline, talking: talking("left"), arriving: now - arrivedAt < ARRIVE_MS }}
+          me={{ visible: Boolean(config), talking: talking("right") }}
+          holding={holding}
+        />
+        {(["left", "right"] as const).map((side) => (
+          <div key={side} className={`bubble-stack bubble-stack-${side}`} style={{ left: `${HEAD_ANCHOR[side].x}%`, bottom: `${100 - HEAD_ANCHOR[side].y}%` }}>
+            {bubbles.filter((bubble) => bubble.side === side).slice(-3).map((bubble) => (
+              <p key={bubble.id} className={`bubble ${now - bubble.at > BUBBLE_MS - 900 ? "leaving" : ""}`}>{bubble.text}</p>
+            ))}
+          </div>
+        ))}
+        {partnerOnline && now - arrivedAt < ARRIVE_MS && <div className="arrive-sparkles" style={{ left: `${HEAD_ANCHOR.left.x}%` }} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
+        {config && !partnerOnline && <p className="empty-seat">TA 的座位</p>}
+      </section>
+
+      {config && (
+        <form className="chat-bar" onSubmit={sendChat}>
+          <input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={CHAT_MAX_LENGTH} placeholder={partnerOnline ? "和 TA 说点什么…" : "TA 还没来，先写好想说的话"} aria-label="聊天" />
+          <button type="submit" disabled={!cleanChatText(draft) || !status.inRoom}>发送</button>
+          <button type="button" className={`feet-button ${holding ? "active" : ""}`} onClick={holdFeet} disabled={!partnerOnline} title={partnerOnline ? "牵牵 TA 的脚" : "TA 还没来"}>
+            <span aria-hidden="true">🐾</span>牵脚
+          </button>
+        </form>
+      )}
+
+      {enlarged && (
+        <div className="enlarged-bar">
+          <button type="button" className="enlarged-back" onClick={() => setEnlarged(false)}>← 回到放映厅 <kbd>Esc</kbd></button>
+          <button type="button" onClick={() => bridge?.navigate("back")} disabled={!status.canGoBack}>后退</button>
+          <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
+          <span className={`enlarged-status ${partnerOnline ? "online" : ""}`}><i />{seatStatus}</span>
+          {latestPartner && now - latestPartner.at < BUBBLE_MS && <span className="enlarged-message">TA：{latestPartner.text}</span>}
+        </div>
+      )}
+
+      {notice && <p className="theater-notice" role="status">{notice}</p>}
+      {init && !config && (
+        <PairingCard
+          onCreate={() => saveConfig({ code: generateRoomCode(), role: "master" })}
+          onJoin={(code) => saveConfig({ code, role: "member" })}
+        />
+      )}
+    </main>
+  );
+}

@@ -1,0 +1,179 @@
+/* OH 放映厅：深色影厅、丝绒幕布、发光银幕、投影光束、两张躺椅与玩偶。 */
+:root {
+  --th-bg: #140b12;
+  --th-wall: #241320;
+  --th-velvet: #7d1f30;
+  --th-velvet-dark: #3e0d18;
+  --th-velvet-light: #b2384d;
+  --th-gold: #e6b860;
+  --th-paper: #fff4e2;
+  --th-ink: #4a2a1c;
+  --th-glow: rgba(190, 214, 255, .5);
+  --th-warm: rgba(255, 196, 120, .9);
+  --th-radius: 14px;
+  --th-ease: cubic-bezier(.22, 1, .36, 1);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body.theater-body { margin: 0; height: 100%; overflow: hidden; background: var(--th-bg); color: var(--th-paper); font-family: "ZCOOL KuaiLe", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+button, input { font: inherit; }
+
+.theater { position: fixed; inset: 0; overflow: hidden; }
+
+/* ---------- 影厅环境 ---------- */
+.theater-room { position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 70% at 50% 22%, rgba(88, 52, 86, .55), transparent 62%),
+    linear-gradient(180deg, #1d0f1a 0%, var(--th-wall) 38%, #170b13 62%, #0e060b 100%); }
+.room-ceiling { position: absolute; inset: 0 0 auto; height: 9vh; background: repeating-linear-gradient(90deg, rgba(255, 255, 255, .025) 0 2px, transparent 2px 80px), linear-gradient(180deg, #0c050a, transparent); }
+.screen-spill { position: absolute; left: 50%; top: 8vh; width: 110vw; height: 92vh; transform: translateX(-50%); background: radial-gradient(48% 44% at 50% 30%, var(--th-glow), transparent 70%); opacity: .32; mix-blend-mode: screen; animation: screen-flicker 5.5s ease-in-out infinite; }
+@keyframes screen-flicker { 0%, 100% { opacity: .3; } 37% { opacity: .38; } 41% { opacity: .26; } 70% { opacity: .35; } }
+
+.projector-beam { position: absolute; left: 50%; bottom: 0; width: 64vw; height: 88vh; transform: translateX(-50%); clip-path: polygon(44% 100%, 56% 100%, 100% 0, 0 0); background: linear-gradient(0deg, rgba(255, 236, 200, .16), rgba(210, 226, 255, .04) 70%, transparent); filter: blur(2px); opacity: .55; }
+.projector-beam i { position: absolute; width: 3px; height: 3px; border-radius: 50%; background: rgba(255, 244, 220, .8); box-shadow: 0 0 6px rgba(255, 238, 200, .9); animation: dust 11s linear infinite; }
+.projector-beam i:nth-child(1) { left: 48%; bottom: 10%; animation-delay: -1s; }
+.projector-beam i:nth-child(2) { left: 41%; bottom: 30%; animation-delay: -4s; animation-duration: 14s; }
+.projector-beam i:nth-child(3) { left: 57%; bottom: 22%; animation-delay: -7s; }
+.projector-beam i:nth-child(4) { left: 35%; bottom: 52%; animation-delay: -2.5s; animation-duration: 16s; }
+.projector-beam i:nth-child(5) { left: 62%; bottom: 46%; animation-delay: -9s; }
+.projector-beam i:nth-child(6) { left: 51%; bottom: 64%; animation-delay: -5.5s; animation-duration: 13s; }
+.projector-beam i:nth-child(7) { left: 28%; bottom: 72%; animation-delay: -3s; }
+.projector-beam i:nth-child(8) { left: 70%; bottom: 70%; animation-delay: -8s; animation-duration: 15s; }
+@keyframes dust { 0% { transform: translate(0, 0); opacity: 0; } 15% { opacity: .9; } 50% { transform: translate(14px, -26px); } 85% { opacity: .7; } 100% { transform: translate(-8px, -58px); opacity: 0; } }
+
+.aisle-lights { position: absolute; bottom: 3vh; display: grid; gap: 4.2vh; }
+.aisle-left { left: 3.5vw; }
+.aisle-right { right: 3.5vw; }
+.aisle-lights i { display: block; width: 18px; height: 6px; border-radius: 3px; background: #ffcf7d; box-shadow: 0 0 12px 3px rgba(255, 190, 90, .55), 0 6px 18px rgba(255, 170, 80, .35); opacity: .85; }
+
+/* ---------- 舞台：幕布与银幕 ---------- */
+.stage { position: absolute; inset: 0 0 auto; height: 64vh; }
+.valance { position: absolute; inset: 0 0 auto; height: 6.5vh; background:
+  radial-gradient(60% 120% at 50% -10%, rgba(255, 140, 150, .18), transparent 60%),
+  repeating-linear-gradient(90deg, var(--th-velvet-dark) 0 6px, var(--th-velvet) 6px 34px, var(--th-velvet-light) 34px 40px, var(--th-velvet) 40px 62px, var(--th-velvet-dark) 62px 70px);
+  border-bottom: 3px solid var(--th-gold); box-shadow: 0 8px 22px rgba(0, 0, 0, .6); }
+.valance::after { content: ""; position: absolute; left: 0; right: 0; bottom: -14px; height: 14px; background: radial-gradient(10px 12px at 10px 0, var(--th-gold) 4px, transparent 5px) 0 0 / 40px 14px repeat-x; opacity: .9; }
+.curtain { position: absolute; top: 0; bottom: -6vh; width: 15vw; background:
+  linear-gradient(90deg, rgba(0, 0, 0, .35), transparent 30%, rgba(255, 160, 170, .08) 50%, transparent 70%, rgba(0, 0, 0, .35)) 0 0 / 3.8vw 100%,
+  linear-gradient(180deg, var(--th-velvet) 0%, #5c1422 70%, #2b0810 100%);
+  box-shadow: inset -10px 0 30px rgba(0, 0, 0, .55); }
+.curtain-left { left: 0; border-bottom-right-radius: 40% 12%; }
+.curtain-right { right: 0; transform: scaleX(-1); border-bottom-right-radius: 40% 12%; }
+.curtain::after { content: ""; position: absolute; right: 18%; top: 46%; width: 22px; height: 64px; border-radius: 10px; background: linear-gradient(180deg, #ffe3a0, var(--th-gold) 55%, #8f5f22); box-shadow: 0 4px 10px rgba(0, 0, 0, .5); }
+
+/* 不用 transform 居中：放大时银幕要以 position: fixed 铺满窗口，transform 会改变 fixed 的参照。 */
+.screen-wrap { position: absolute; left: 0; right: 0; top: 9vh; width: min(60vw, calc(43vh * 16 / 9)); margin-inline: auto; }
+.screen-frame { padding: 10px; border-radius: 6px; background: linear-gradient(180deg, #2a1a22, #120a0f); box-shadow: 0 0 0 2px #3a2630, 0 0 60px 8px rgba(170, 200, 255, .16), 0 26px 60px rgba(0, 0, 0, .7); }
+.screen-surface { position: relative; aspect-ratio: 16 / 9; border-radius: 3px; background: radial-gradient(70% 70% at 50% 45%, #2b3442, #0b0e14); overflow: hidden; }
+.screen-idle { position: absolute; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center; color: rgba(230, 238, 255, .8); }
+.screen-idle b { font-size: clamp(22px, 3.2vw, 44px); letter-spacing: .2em; text-shadow: 0 0 24px rgba(180, 210, 255, .6); }
+.screen-idle span { font-size: 14px; opacity: .75; }
+.screen-hint { margin: 10px 0 0; text-align: center; font-size: 13px; color: rgba(255, 236, 214, .55); letter-spacing: .04em; }
+
+/* 放大银幕：B站视图铺满顶部工具条以下的整个窗口 */
+.is-enlarged .screen-surface { position: fixed; inset: 48px 0 0 0; aspect-ratio: auto; border-radius: 0; z-index: 30; }
+.is-enlarged .screen-frame { box-shadow: none; }
+.is-enlarged .seats, .is-enlarged .chat-bar, .is-enlarged .theater-hud { visibility: hidden; }
+.enlarged-bar { position: fixed; inset: 0 0 auto; z-index: 40; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: linear-gradient(180deg, #2a1420, #1a0c14); border-bottom: 2px solid #4a2330; }
+.enlarged-bar button { height: 32px; padding: 0 12px; border: 1px solid rgba(255, 220, 190, .25); border-radius: 9px; background: rgba(255, 240, 220, .08); color: var(--th-paper); cursor: pointer; }
+.enlarged-bar button:hover:not(:disabled) { background: rgba(255, 240, 220, .16); }
+.enlarged-bar button:disabled { opacity: .4; cursor: default; }
+.enlarged-back { background: var(--th-velvet) !important; border-color: var(--th-velvet-light) !important; }
+.enlarged-back kbd { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, .3); font-size: 11px; font-family: inherit; }
+.enlarged-status, .ticket-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: rgba(255, 236, 214, .75); }
+.enlarged-status i, .ticket-status i { width: 8px; height: 8px; border-radius: 50%; background: #8c7a80; }
+.enlarged-status.online i, .ticket-status.online i { background: #7ee08f; box-shadow: 0 0 8px #7ee08f; }
+.enlarged-message { margin-left: auto; max-width: 40vw; padding: 5px 12px; border-radius: 12px; background: #ffe3ec; color: #6b2a40; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: bubble-in .35s var(--th-ease); }
+
+/* ---------- 顶部票根与银幕按钮 ---------- */
+.theater-hud { position: absolute; z-index: 20; top: 8vh; left: 16px; right: 16px; display: flex; justify-content: space-between; align-items: flex-start; pointer-events: none; }
+.theater-hud > * { pointer-events: auto; }
+.ticket { display: grid; grid-template-columns: auto auto; gap: 4px 10px; align-items: center; padding: 10px 14px; border-radius: 10px; background: linear-gradient(180deg, #fff4e2, #f3dcbc); color: var(--th-ink); box-shadow: 0 8px 20px rgba(0, 0, 0, .45); -webkit-mask: radial-gradient(7px at 0 50%, transparent 98%, #000) left / 51% 100% no-repeat, radial-gradient(7px at 100% 50%, transparent 98%, #000) right / 51% 100% no-repeat; }
+.ticket-label { grid-column: 1 / -1; font-size: 11px; letter-spacing: .12em; color: #9a6a4a; }
+.ticket-code { padding: 0; border: 0; background: none; color: var(--th-velvet); font-size: 20px; letter-spacing: .12em; cursor: pointer; }
+.ticket-status { color: #7a5a48; }
+.ticket-change { grid-column: 2; justify-self: end; padding: 2px 8px; border: 1px solid #d9b896; border-radius: 6px; background: transparent; color: #9a6a4a; font-size: 12px; cursor: pointer; }
+.screen-controls { display: flex; flex-direction: column; gap: 8px; }
+.screen-controls button { min-width: 96px; height: 34px; border: 1px solid rgba(255, 220, 190, .28); border-radius: 10px; background: rgba(40, 18, 30, .78); color: var(--th-paper); cursor: pointer; backdrop-filter: blur(4px); }
+.screen-controls button:hover:not(:disabled) { background: rgba(125, 31, 48, .85); }
+.screen-controls button:disabled { opacity: .4; cursor: default; }
+.screen-controls .enlarge-button { background: var(--th-velvet); border-color: var(--th-velvet-light); }
+
+/* ---------- 座位、玩偶与气泡 ---------- */
+.seats { position: absolute; left: 50%; bottom: 0; width: min(78vw, 980px, calc(39vh * 800 / 436)); transform: translateX(-50%); }
+.seats-art { display: block; width: 100%; height: auto; overflow: visible; filter: drop-shadow(0 -6px 30px rgba(170, 200, 255, .1)); }
+.doll { transition: transform .4s var(--th-ease); }
+.doll.talking { animation: doll-talk .7s var(--th-ease) 2; }
+@keyframes doll-talk { 0%, 100% { transform: translateY(0) scale(1); } 40% { transform: translateY(-6px) scale(1.02, .98); } }
+.doll-face { animation: face-in .3s var(--th-ease); }
+@keyframes face-in { from { opacity: 0; } }
+.doll-slot-left.arriving .doll { animation: doll-arrive .9s var(--th-ease); transform-box: fill-box; }
+@keyframes doll-arrive { 0% { transform: translateY(40px) scale(.2); opacity: 0; } 60% { transform: translateY(-10px) scale(1.06); opacity: 1; } 100% { transform: translateY(0) scale(1); } }
+.is-holding .doll-pink { transform: rotate(4deg); }
+.is-holding .doll-white { transform: rotate(-4deg); }
+
+.feet .foot-inner { transition: transform .9s var(--th-ease); }
+.feet.holding .foot-inner { transform: translateX(var(--reach)); }
+.feet .leg-stretch { transform: scaleX(0); transition: transform .9s var(--th-ease); }
+.feet.holding .leg-stretch { transform: scaleX(1); }
+.feet-heart { transform-origin: 400px 66px; animation: heart-pop 1.1s var(--th-ease) .7s both, heart-beat 1.2s ease-in-out 1.8s infinite; }
+@keyframes heart-pop { from { transform: scale(0) translateY(20px); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+@keyframes heart-beat { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.12); } }
+
+.bubble-stack { position: absolute; display: grid; justify-items: center; gap: 6px; transform: translate(-50%, -8px); pointer-events: none; width: max-content; max-width: min(34vw, 320px); }
+.bubble { position: relative; margin: 0; padding: 9px 14px; border: 2px solid #5a3048; border-radius: 16px; background: #fff7ef; color: #4a2638; font-size: 15px; line-height: 1.35; box-shadow: 0 6px 16px rgba(0, 0, 0, .45); animation: bubble-in .4s var(--th-ease); overflow-wrap: anywhere; }
+.bubble:last-child::after { content: ""; position: absolute; left: 50%; bottom: -9px; width: 14px; height: 14px; border-right: 2px solid #5a3048; border-bottom: 2px solid #5a3048; background: inherit; transform: translateX(-50%) rotate(45deg); }
+.bubble-stack-left .bubble { background: #ffe6ee; }
+.bubble.leaving { opacity: 0; transform: translateY(-8px); transition: opacity .8s ease, transform .8s ease; }
+@keyframes bubble-in { from { opacity: 0; transform: translateY(10px) scale(.9); } }
+
+.arrive-sparkles { position: absolute; bottom: 52%; width: 0; height: 0; pointer-events: none; }
+.arrive-sparkles i { position: absolute; width: 10px; height: 10px; background: #ffe39a; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); animation: sparkle 1.2s var(--th-ease) both; }
+.arrive-sparkles i:nth-child(1) { --sx: -70px; --sy: -40px; }
+.arrive-sparkles i:nth-child(2) { --sx: 60px; --sy: -56px; animation-delay: .1s; }
+.arrive-sparkles i:nth-child(3) { --sx: -40px; --sy: -90px; animation-delay: .2s; }
+.arrive-sparkles i:nth-child(4) { --sx: 80px; --sy: -10px; animation-delay: .15s; }
+.arrive-sparkles i:nth-child(5) { --sx: 6px; --sy: -110px; animation-delay: .25s; }
+@keyframes sparkle { from { transform: translate(0, 0) scale(.2); opacity: 0; } 40% { opacity: 1; } to { transform: translate(var(--sx), var(--sy)) scale(1.1) rotate(45deg); opacity: 0; } }
+.empty-seat { position: absolute; left: 31.25%; bottom: 46%; margin: 0; transform: translateX(-50%); padding: 4px 10px; border: 1px dashed rgba(255, 220, 200, .35); border-radius: 10px; color: rgba(255, 228, 210, .55); font-size: 13px; }
+
+/* ---------- 聊天条 ---------- */
+.chat-bar { position: absolute; z-index: 20; left: 50%; bottom: 16px; width: min(560px, 92vw); transform: translateX(-50%); display: flex; gap: 8px; padding: 8px; border: 1px solid rgba(255, 220, 190, .25); border-radius: 16px; background: rgba(28, 12, 22, .82); box-shadow: 0 10px 30px rgba(0, 0, 0, .6); backdrop-filter: blur(6px); }
+.chat-bar input { flex: 1; min-width: 0; height: 38px; padding: 0 12px; border: 1px solid rgba(255, 220, 190, .2); border-radius: 11px; background: rgba(255, 244, 226, .08); color: var(--th-paper); outline: none; }
+.chat-bar input:focus { border-color: var(--th-gold); background: rgba(255, 244, 226, .12); }
+.chat-bar input::placeholder { color: rgba(255, 236, 214, .45); }
+.chat-bar button { height: 38px; padding: 0 14px; border: 0; border-radius: 11px; background: var(--th-velvet); color: #fff; cursor: pointer; white-space: nowrap; }
+.chat-bar button:hover:not(:disabled) { background: var(--th-velvet-light); }
+.chat-bar button:disabled { opacity: .45; cursor: default; }
+.feet-button { display: inline-flex; align-items: center; gap: 4px; background: #c4577a !important; }
+.feet-button.active { background: #ff7fa2 !important; box-shadow: 0 0 14px rgba(255, 127, 162, .7); }
+
+.theater-notice { position: absolute; z-index: 25; left: 50%; bottom: 76px; margin: 0; transform: translateX(-50%); padding: 7px 14px; border-radius: 12px; background: rgba(255, 244, 226, .95); color: var(--th-ink); font-size: 14px; box-shadow: 0 6px 18px rgba(0, 0, 0, .5); animation: bubble-in .35s var(--th-ease); }
+
+/* ---------- 首次配对 ---------- */
+.pairing-layer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: rgba(10, 4, 8, .72); backdrop-filter: blur(3px); }
+.pairing-card { width: min(640px, 100%); padding: 26px 26px 20px; border-radius: 18px; background: linear-gradient(180deg, #fff6e8, #f6e2c4); color: var(--th-ink); box-shadow: 0 24px 60px rgba(0, 0, 0, .7); }
+.pairing-eyebrow { margin: 0; font-size: 12px; letter-spacing: .16em; color: #a0704e; }
+.pairing-card h1 { margin: 6px 0 18px; font-size: 24px; color: #5a2030; }
+.pairing-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.pairing-option { display: grid; gap: 8px; align-content: start; padding: 16px; border: 2px dashed #e0bf9a; border-radius: 14px; background: rgba(255, 255, 255, .5); }
+.pairing-option h2 { margin: 0; font-size: 18px; color: #6b2a3a; }
+.pairing-option p { margin: 0; font-size: 13px; color: #8a6a55; }
+.pairing-option input { height: 40px; padding: 0 12px; border: 2px solid #e0bf9a; border-radius: 10px; background: #fff; color: #5a2030; font-size: 18px; letter-spacing: .14em; text-transform: uppercase; outline: none; }
+.pairing-option input:focus { border-color: var(--th-velvet); }
+.pairing-primary, .pairing-secondary { height: 42px; border: 0; border-radius: 11px; color: #fff; font-size: 16px; cursor: pointer; }
+.pairing-primary { background: var(--th-velvet); }
+.pairing-secondary { background: #c4577a; }
+.pairing-secondary:disabled { opacity: .45; cursor: default; }
+.pairing-note { margin: 14px 0 0; font-size: 12px; color: #a0806a; text-align: center; }
+
+@media (max-width: 720px) {
+  .pairing-options { grid-template-columns: 1fr; }
+  .theater-hud { flex-direction: column; gap: 8px; }
+  .screen-controls { flex-direction: row; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

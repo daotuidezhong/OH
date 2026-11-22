@@ -31,10 +31,15 @@ test("opens Bilibili in an isolated, sandboxed theater window with pinned VideoT
 
   assert.match(preload, /theater: \{\s*open: \(\) => ipcRenderer\.send\("theater:open"\)/);
   assert.match(electronMain, /ipcMain\.on\("theater:open"[\s\S]*event\.sender !== window\.webContents[\s\S]*openTheaterWindow/);
-  assert.match(theater, /partition = THEATER_PARTITION[\s\S]*partition,\s*contextIsolation: true,\s*nodeIntegration: false,\s*sandbox: true/);
-  assert.doesNotMatch(theater, /preload:/);
+  // 场景页面有自己的 preload；B站视图（WebContentsView）独立分区、沙箱、没有 preload。
+  const viewPreferences = theater.match(/new WebContentsView\(\{\s*webPreferences: \{([^}]*)\}/)?.[1] ?? "";
+  assert.match(viewPreferences, /partition, contextIsolation: true, nodeIntegration: false, sandbox: true/);
+  assert.doesNotMatch(viewPreferences, /preload/);
+  assert.match(theater, /preload: path\.join\(__dirname, "theater-preload\.cjs"\), contextIsolation: true, sandbox: true/);
   assert.match(theater, /callback\(permission === "fullscreen"\)/);
-  assert.match(theater, /dom-ready[\s\S]*injectVideoTogether/);
+  assert.match(theater, /async function inject\(context\)[\s\S]*executeJavaScript\(loader, true\)[\s\S]*executeJavaScript\(vt, true\)[\s\S]*executeJavaScript\(bridge, true\)/);
+  assert.match(theater, /webContents\.on\("dom-ready", \(\) => inject\(context\)\)/);
+  assert.match(theater, /function contextFor\(event\)[\s\S]*event\.sender === context\.window\.webContents/);
 
   assert.equal(isBilibiliUrl("https://www.bilibili.com/video/BV1xx411c7mD"), true);
   assert.equal(isBilibiliUrl("https://b23.tv/abc"), true);
@@ -52,6 +57,7 @@ test("opens Bilibili in an isolated, sandboxed theater window with pinned VideoT
   assert.match(vt, /const vtRuntime = `website`/);
   assert.match(license, /MIT License[\s\S]*VideoTogether/);
   assert.ok(packageJson.build.files.includes("electron/vendor/videotogether/*.js"));
+  assert.ok(packageJson.build.files.includes("electron/theater-bridge.js"));
   assert.ok(packageJson.build.files.includes("electron/vendor/videotogether/LICENSE"));
 });
 
@@ -61,5 +67,26 @@ test("theater test mode isolates data before taking the single-instance lock", a
   const testMode = electronMain.indexOf('app.setPath("userData", path.join(app.getPath("appData"), "OH-theater-test"))');
   assert.ok(testMode > 0 && testMode < electronMain.indexOf("requestSingleInstanceLock()"));
   assert.match(electronMain, /if \(theaterTestMode\) openTheaterTestPair/);
-  assert.match(theater, /\["A", "B"\][\s\S]*persist:oh-theater-test-\$\{label\.toLowerCase\(\)\}/);
+  assert.match(theater, /\["A", "B"\][\s\S]*persist:oh-theater-test-\$\{label\.toLowerCase\(\)\}[\s\S]*testConfig: \{ code, role: index === 0 \? "master" : "member" \}/);
+  assert.match(electronMain, /openTheaterWindow\(\{ icon, parent: window, configFile: path\.join\(app\.getPath\("userData"\), "theater\.json"\) \}\)/);
+});
+
+test("theater hall: dolls, bubbles, hold-feet and enlargeable screen are wired up", async () => {
+  const scene = await read("../app/theater/TheaterScene.tsx");
+  const art = await read("../app/theater/SeatsArt.tsx");
+  const css = await read("../app/theater/theater.css");
+  const vite = await read("../desktop/vite.config.ts");
+  assert.match(vite, /theater: path\.resolve\(import\.meta\.dirname, "theater\.html"\)/);
+  // 粉色玩偶 = TA，只在对方上线时出现；白色戴耳罩玩偶 = 我
+  assert.match(scene, /const partnerOnline = Boolean\(config && status\.inRoom && status\.members >= 2\)/);
+  assert.match(scene, /partner=\{\{ visible: partnerOnline/);
+  assert.match(art, /function PinkDoll[\s\S]*function WhiteDoll[\s\S]*蓝色耳罩/);
+  // TA 的消息冒在左边，我的在右边；牵脚走专用信号
+  assert.match(scene, /if \(message\.kind === "feet"\) setHoldUntil[\s\S]*else addBubble\("left", message\.text\)/);
+  assert.match(scene, /if \(await bridge\.send\(text\)\) addBubble\("right", text\)/);
+  assert.match(scene, /await bridge\.send\(FEET_TOKEN\)/);
+  assert.match(css, /\.feet\.holding \.foot-inner \{ transform: translateX\(var\(--reach\)\); \}/);
+  // 放大银幕不能被 transform 影响 fixed 定位
+  assert.match(css, /\.is-enlarged \.screen-surface \{ position: fixed; inset: 48px 0 0 0;/);
+  assert.doesNotMatch(css.match(/\.screen-wrap \{[^}]*\}/)[0], /transform/);
 });

@@ -13,6 +13,7 @@ export default defineConfig({
       input: {
         main: path.resolve(import.meta.dirname, "index.html"),
         pomodoro: path.resolve(import.meta.dirname, "pomodoro.html"),
+        theater: path.resolve(import.meta.dirname, "theater.html"),
       },
     },
   },

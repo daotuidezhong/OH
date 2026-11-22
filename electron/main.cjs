@@ -249,7 +249,7 @@ if (singleInstance) app.whenReady().then(() => {
     if (event.sender !== window.webContents) return;
     const icon = app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png");
     if (theaterTestMode) openTheaterTestPair({ icon, parent: window, workArea: screen.getDisplayMatching(window.getBounds()).workArea });
-    else openTheaterWindow({ icon, parent: window });
+    else openTheaterWindow({ icon, parent: window, configFile: path.join(app.getPath("userData"), "theater.json") });
   });
   autoUpdater.autoDownload = false;
   autoUpdater.on("update-available", (info) => sendUpdate({

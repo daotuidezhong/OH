@@ -1,13 +1,33 @@
-// 放映室验证版：在独立窗口打开 B站，并注入固定版本的 VideoTogether 做同步播放。
-// 这个窗口加载的是第三方网页，因此不挂 OH 的 preload，也拿不到游戏存档和任何 IPC。
-const { BrowserWindow, session, shell } = require("electron");
-const { readFileSync } = require("node:fs");
+// 放映厅：自己的场景页面（躺椅、玩偶、聊天、银幕）+ 嵌在“银幕”位置的 B站视图。
+// B站视图加载第三方网页：独立会话分区、沙箱、无 preload，拿不到游戏存档和任何 IPC；
+// 只通过 executeJavaScript 调用注入的 window.__ohTheater（见 theater-bridge.js）。
+const { BrowserWindow, WebContentsView, ipcMain, session, shell } = require("electron");
+const fs = require("node:fs");
 const path = require("node:path");
 const { isBilibiliUrl, toChromeUserAgent } = require("./theater-rules.cjs");
 
 const THEATER_PARTITION = "persist:oh-theater";
 const THEATER_HOME = "https://www.bilibili.com/";
+const SCENE_URL = "berry://game/theater.html";
 const VENDOR_DIR = path.join(__dirname, "vendor", "videotogether");
+const POLL_MS = 250;
+const ROOM_CODE = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/;
+
+/** 放映厅窗口上下文，按场景页面的 webContents.id 索引。 */
+const contexts = new Map();
+let scripts = null;
+let ipcReady = false;
+
+function loadScripts() {
+  if (!scripts) {
+    scripts = {
+      loader: fs.readFileSync(path.join(VENDOR_DIR, "loader.website.js"), "utf8"),
+      vt: fs.readFileSync(path.join(VENDOR_DIR, "vt.zh-cn.website.js"), "utf8"),
+      bridge: fs.readFileSync(path.join(__dirname, "theater-bridge.js"), "utf8"),
+    };
+  }
+  return scripts;
+}
 
 function openExternally(value) {
   try {
@@ -16,75 +36,198 @@ function openExternally(value) {
   } catch {}
 }
 
-const theaterWindows = new Map();
-let vendorScripts = null;
-
-function loadVendorScripts() {
-  if (!vendorScripts) {
-    vendorScripts = {
-      loader: readFileSync(path.join(VENDOR_DIR, "loader.website.js"), "utf8"),
-      vt: readFileSync(path.join(VENDOR_DIR, "vt.zh-cn.website.js"), "utf8"),
-    };
-  }
-  return vendorScripts;
+function roomCredentials(code) {
+  return { name: `OH-THEATER-${code}`, password: `oh-${code.toLowerCase()}-together` };
 }
 
-function prepareTheaterSession(partition) {
+function validConfig(value) {
+  return Boolean(value && typeof value === "object" && ROOM_CODE.test(value.code) && (value.role === "master" || value.role === "member"));
+}
+
+function readConfig(file) {
+  try {
+    const value = JSON.parse(fs.readFileSync(file, "utf8"));
+    return validConfig(value) ? { code: value.code, role: value.role } : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeConfig(file, config) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  if (config) fs.writeFileSync(file, JSON.stringify(config), "utf8");
+  else fs.rmSync(file, { force: true });
+}
+
+function prepareSession(partition) {
   const theaterSession = session.fromPartition(partition);
   theaterSession.setUserAgent(toChromeUserAgent(theaterSession.getUserAgent()));
-  // 放映室只需要全屏和自动播放，其余权限（摄像头、麦克风、定位、通知等）一律拒绝。
-  theaterSession.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(permission === "fullscreen");
-  });
+  // 只需要全屏和自动播放，摄像头、麦克风、定位、通知等一律拒绝。
+  theaterSession.setPermissionRequestHandler((_webContents, permission, callback) => callback(permission === "fullscreen"));
   return theaterSession;
 }
 
-async function injectVideoTogether(webContents) {
-  if (webContents.isDestroyed() || !isBilibiliUrl(webContents.getURL())) return;
-  const { loader, vt } = loadVendorScripts();
+async function runInView(context, code) {
+  const { webContents } = context.view;
+  if (webContents.isDestroyed() || !isBilibiliUrl(webContents.getURL())) return null;
   try {
-    // 先跑加载器（建立存储与消息桥），再跑 vt 本体；两者自带防重复注入。
-    await webContents.executeJavaScript(loader, true);
-    await webContents.executeJavaScript(vt, true);
-  } catch (error) {
-    console.error("[theater] VideoTogether 注入失败", error);
+    return await webContents.executeJavaScript(code, true);
+  } catch {
+    return null;
   }
 }
 
-// 每个分区（独立的 B站登录状态）最多一个放映室窗口。
-function openTheaterWindow({ icon, parent, partition = THEATER_PARTITION, label = "", bounds = {} } = {}) {
-  const existing = theaterWindows.get(partition);
-  if (existing && !existing.isDestroyed()) {
-    if (existing.isMinimized()) existing.restore();
-    existing.focus();
-    return existing;
+function pushConfig(context) {
+  const credentials = context.config ? roomCredentials(context.config.code) : null;
+  const payload = credentials ? { ...credentials, role: context.config.role } : null;
+  return runInView(context, `window.__ohTheater && window.__ohTheater.configure(${JSON.stringify(payload)})`);
+}
+
+function pushSmall(context) {
+  return runInView(context, `window.__ohTheater && window.__ohTheater.setSmall(${context.enlarged ? "false" : "true"})`);
+}
+
+async function inject(context) {
+  const { webContents } = context.view;
+  if (webContents.isDestroyed() || !isBilibiliUrl(webContents.getURL())) return;
+  const { loader, vt, bridge } = loadScripts();
+  try {
+    // 加载器建立存储与消息桥，再跑 VideoTogether 本体，最后是放映厅桥；三者都自带防重复注入。
+    await webContents.executeJavaScript(loader, true);
+    await webContents.executeJavaScript(vt, true);
+    await webContents.executeJavaScript(bridge, true);
+    await pushSmall(context);
+    await pushConfig(context);
+  } catch (error) {
+    console.error("[theater] 注入失败", error);
+  }
+}
+
+function sendToScene(context, channel, payload) {
+  if (!context.window.isDestroyed()) context.window.webContents.send(channel, payload);
+}
+
+async function poll(context) {
+  if (context.polling || context.view.webContents.isDestroyed()) return;
+  context.polling = true;
+  try {
+    const state = await runInView(context, "window.__ohTheater ? window.__ohTheater.drain() : null");
+    const next = state && typeof state === "object" ? state : { role: "loading", inRoom: false, members: 0, hasVideo: false, messages: [], events: [] };
+    for (const event of Array.isArray(next.events) ? next.events : []) {
+      if (event && event.type === "enlarge") sendToScene(context, "theater:enlarge", true);
+    }
+    sendToScene(context, "theater:state", {
+      role: String(next.role),
+      inRoom: Boolean(next.inRoom),
+      members: Number(next.members) || 0,
+      hasVideo: Boolean(next.hasVideo),
+      messages: (Array.isArray(next.messages) ? next.messages : []).filter((item) => item && typeof item.msg === "string").map((item) => ({ msg: item.msg.slice(0, 400) })),
+      canGoBack: context.view.webContents.navigationHistory.canGoBack(),
+    });
+  } finally {
+    context.polling = false;
+  }
+}
+
+function contextFor(event) {
+  const context = contexts.get(event.sender.id);
+  return context && event.sender === context.window.webContents ? context : null;
+}
+
+function setupIpc() {
+  if (ipcReady) return;
+  ipcReady = true;
+  ipcMain.handle("theater:init", (event) => {
+    const context = contextFor(event);
+    return context ? { config: context.config, label: context.label, testMode: Boolean(context.testConfig) } : null;
+  });
+  ipcMain.handle("theater:config", async (event, config) => {
+    const context = contextFor(event);
+    if (!context) return false;
+    if (config !== null && !validConfig(config)) return false;
+    context.config = config ? { code: config.code, role: config.role } : null;
+    if (!context.testConfig && context.configFile) writeConfig(context.configFile, context.config);
+    await pushConfig(context);
+    return true;
+  });
+  ipcMain.on("theater:screen", (event, rect, enlarged) => {
+    const context = contextFor(event);
+    if (!context || !rect || typeof rect !== "object") return;
+    const [x, y, width, height] = ["x", "y", "width", "height"].map((key) => Math.max(0, Math.round(Number(rect[key]) || 0)));
+    context.view.setBounds({ x, y, width, height });
+    const nextEnlarged = Boolean(enlarged);
+    if (nextEnlarged !== context.enlarged) {
+      context.enlarged = nextEnlarged;
+      pushSmall(context);
+      if (nextEnlarged) context.view.webContents.focus();
+    }
+  });
+  ipcMain.handle("theater:send", (event, text) => {
+    const context = contextFor(event);
+    if (!context || typeof text !== "string" || !text || text.length > 400) return false;
+    return runInView(context, `window.__ohTheater ? window.__ohTheater.send(${JSON.stringify(text)}) : false`);
+  });
+  ipcMain.on("theater:navigate", (event, action) => {
+    const context = contextFor(event);
+    if (!context) return;
+    const { webContents } = context.view;
+    if (action === "home") webContents.loadURL(THEATER_HOME);
+    if (action === "back" && webContents.navigationHistory.canGoBack()) webContents.navigationHistory.goBack();
+  });
+}
+
+/**
+ * 打开放映厅。configFile 保存放映厅码；testConfig 用于 --theater-test（A/B 自动配对，不落盘）。
+ * 每个会话分区最多一个放映厅窗口。
+ */
+function openTheaterWindow({ icon, parent, configFile, partition = THEATER_PARTITION, label = "", bounds = {}, testConfig = null } = {}) {
+  setupIpc();
+  for (const context of contexts.values()) {
+    if (context.partition === partition && !context.window.isDestroyed()) {
+      if (context.window.isMinimized()) context.window.restore();
+      context.window.focus();
+      return context.window;
+    }
   }
 
-  const windowTitle = label ? `OH 放映室 ${label}` : "OH 放映室";
-  prepareTheaterSession(partition);
-  const theaterWindow = new BrowserWindow({
-    title: windowTitle,
+  const title = label ? `OH 放映厅 ${label}` : "OH 放映厅";
+  prepareSession(partition);
+  const window = new BrowserWindow({
+    title,
     icon,
     width: 1280,
-    height: 800,
-    minWidth: 640,
-    minHeight: 480,
+    height: 820,
+    minWidth: 960,
+    minHeight: 640,
     ...bounds,
-    backgroundColor: "#1d1520",
+    backgroundColor: "#140b12",
     autoHideMenuBar: true,
-    webPreferences: {
-      partition,
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      autoplayPolicy: "no-user-gesture-required",
-    },
+    webPreferences: { preload: path.join(__dirname, "theater-preload.cjs"), contextIsolation: true, sandbox: true },
   });
-  theaterWindows.set(partition, theaterWindow);
+  const view = new WebContentsView({
+    webPreferences: { partition, contextIsolation: true, nodeIntegration: false, sandbox: true, autoplayPolicy: "no-user-gesture-required" },
+  });
+  view.setBackgroundColor("#000000");
+  view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  window.contentView.addChildView(view);
 
-  const { webContents } = theaterWindow;
+  const context = {
+    window,
+    view,
+    partition,
+    label,
+    configFile,
+    testConfig,
+    config: testConfig || (configFile ? readConfig(configFile) : null),
+    enlarged: false,
+    polling: false,
+    timer: null,
+  };
+  contexts.set(window.webContents.id, context);
+
+  const { webContents } = view;
   webContents.setWindowOpenHandler(({ url }) => {
-    // B站大量链接用新标签页打开，放映室统一在当前窗口里跳转。
+    // B站大量链接用新标签页打开，放映厅统一在银幕里跳转。
     if (isBilibiliUrl(url)) webContents.loadURL(url);
     else openExternally(url);
     return { action: "deny" };
@@ -94,33 +237,50 @@ function openTheaterWindow({ icon, parent, partition = THEATER_PARTITION, label 
     event.preventDefault();
     openExternally(url);
   });
-  webContents.on("dom-ready", () => injectVideoTogether(webContents));
-  webContents.on("page-title-updated", (event, title) => {
-    event.preventDefault();
-    if (!theaterWindow.isDestroyed()) theaterWindow.setTitle(`${windowTitle} · ${title}`);
+  webContents.on("dom-ready", () => inject(context));
+  webContents.on("before-input-event", (event, input) => {
+    if (input.type === "keyDown" && input.key === "Escape" && context.enlarged && !window.isFullScreen()) {
+      event.preventDefault();
+      sendToScene(context, "theater:enlarge", false);
+    }
   });
+  // B站播放器自己的全屏：整个窗口全屏，银幕铺满。
+  webContents.on("enter-html-full-screen", () => { window.setFullScreen(true); sendToScene(context, "theater:enlarge", true); });
+  webContents.on("leave-html-full-screen", () => { window.setFullScreen(false); });
+  window.webContents.on("page-title-updated", (event) => { event.preventDefault(); });
 
-  const closeWithParent = () => { if (!theaterWindow.isDestroyed()) theaterWindow.close(); };
+  // 场景页面只允许停留在本地放映厅页面。
+  window.webContents.on("will-navigate", (event) => event.preventDefault());
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+
+  const closeWithParent = () => { if (!window.isDestroyed()) window.close(); };
   parent?.once("closed", closeWithParent);
-  theaterWindow.on("closed", () => {
+  window.on("closed", () => {
     parent?.removeListener("closed", closeWithParent);
-    if (theaterWindows.get(partition) === theaterWindow) theaterWindows.delete(partition);
+    clearInterval(context.timer);
+    for (const [id, item] of contexts) if (item === context) contexts.delete(id);
+    if (!webContents.isDestroyed()) webContents.close();
   });
 
-  theaterWindow.loadURL(THEATER_HOME);
-  return theaterWindow;
+  context.timer = setInterval(() => poll(context), POLL_MS);
+  window.loadURL(SCENE_URL);
+  webContents.loadURL(THEATER_HOME);
+  return window;
 }
 
-// 测试模式：一次打开左右并排的两个放映室，各自独立登录，模拟两个人。
+// 测试模式：一次打开左右并排的两个放映厅，A 建房、B 加入同一个随机放映厅码，各自独立登录，模拟两个人。
 function openTheaterTestPair({ icon, parent, workArea }) {
   const width = Math.floor(workArea.width / 2);
+  const alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
+  const code = Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
   return ["A", "B"].map((label, index) => openTheaterWindow({
     icon,
     parent,
     label,
     partition: `persist:oh-theater-test-${label.toLowerCase()}`,
-    bounds: { x: workArea.x + index * width, y: workArea.y, width, height: workArea.height },
+    testConfig: { code, role: index === 0 ? "master" : "member" },
+    bounds: { x: workArea.x + index * width, y: workArea.y, width, height: workArea.height, minWidth: 640 },
   }));
 }
 
-module.exports = { THEATER_HOME, THEATER_PARTITION, openTheaterTestPair, openTheaterWindow };
+module.exports = { THEATER_HOME, THEATER_PARTITION, openTheaterTestPair, openTheaterWindow, roomCredentials };
