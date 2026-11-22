@@ -829,6 +829,12 @@ test("opens the Bilibili theater prototype in an isolated window with pinned Vid
   assert.match(theater, /callback\(permission === "fullscreen"\)/);
   assert.match(theater, /dom-ready[\s\S]*injectVideoTogether/);
 
+  // 测试模式：单独数据目录，A/B 两个独立登录分区。
+  assert.match(electronMain, /process\.argv\.includes\("--theater-test"\)[\s\S]*app\.setPath\("userData", path\.join\(app\.getPath\("appData"\), "OH-theater-test"\)\)[\s\S]*app\.whenReady/);
+  assert.match(electronMain, /theaterTestMode \? |if \(theaterTestMode\) openTheaterTestPair/);
+  assert.match(theater, /\["A", "B"\][\s\S]*persist:oh-theater-test-\$\{label\.toLowerCase\(\)\}/);
+  assert.match(theater, /const theaterWindows = new Map\(\)/);
+
   // 只在 B站注入，且只放行 https。
   assert.equal(isBilibiliUrl("https://www.bilibili.com/video/BV1xx411c7mD"), true);
   assert.equal(isBilibiliUrl("https://b23.tv/abc"), true);

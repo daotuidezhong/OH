@@ -16,7 +16,7 @@ function openExternally(value) {
   } catch {}
 }
 
-let theaterWindow = null;
+const theaterWindows = new Map();
 let vendorScripts = null;
 
 function loadVendorScripts() {
@@ -29,8 +29,8 @@ function loadVendorScripts() {
   return vendorScripts;
 }
 
-function prepareTheaterSession() {
-  const theaterSession = session.fromPartition(THEATER_PARTITION);
+function prepareTheaterSession(partition) {
+  const theaterSession = session.fromPartition(partition);
   theaterSession.setUserAgent(toChromeUserAgent(theaterSession.getUserAgent()));
   // 放映室只需要全屏和自动播放，其余权限（摄像头、麦克风、定位、通知等）一律拒绝。
   theaterSession.setPermissionRequestHandler((_webContents, permission, callback) => {
@@ -51,31 +51,36 @@ async function injectVideoTogether(webContents) {
   }
 }
 
-function openTheaterWindow({ icon, parent } = {}) {
-  if (theaterWindow && !theaterWindow.isDestroyed()) {
-    if (theaterWindow.isMinimized()) theaterWindow.restore();
-    theaterWindow.focus();
-    return theaterWindow;
+// 每个分区（独立的 B站登录状态）最多一个放映室窗口。
+function openTheaterWindow({ icon, parent, partition = THEATER_PARTITION, label = "", bounds = {} } = {}) {
+  const existing = theaterWindows.get(partition);
+  if (existing && !existing.isDestroyed()) {
+    if (existing.isMinimized()) existing.restore();
+    existing.focus();
+    return existing;
   }
 
-  prepareTheaterSession();
-  theaterWindow = new BrowserWindow({
-    title: "OH 放映室",
+  const windowTitle = label ? `OH 放映室 ${label}` : "OH 放映室";
+  prepareTheaterSession(partition);
+  const theaterWindow = new BrowserWindow({
+    title: windowTitle,
     icon,
     width: 1280,
     height: 800,
-    minWidth: 960,
-    minHeight: 600,
+    minWidth: 640,
+    minHeight: 480,
+    ...bounds,
     backgroundColor: "#1d1520",
     autoHideMenuBar: true,
     webPreferences: {
-      partition: THEATER_PARTITION,
+      partition,
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
       autoplayPolicy: "no-user-gesture-required",
     },
   });
+  theaterWindows.set(partition, theaterWindow);
 
   const { webContents } = theaterWindow;
   webContents.setWindowOpenHandler(({ url }) => {
@@ -92,18 +97,30 @@ function openTheaterWindow({ icon, parent } = {}) {
   webContents.on("dom-ready", () => injectVideoTogether(webContents));
   webContents.on("page-title-updated", (event, title) => {
     event.preventDefault();
-    if (theaterWindow && !theaterWindow.isDestroyed()) theaterWindow.setTitle(`OH 放映室 · ${title}`);
+    if (!theaterWindow.isDestroyed()) theaterWindow.setTitle(`${windowTitle} · ${title}`);
   });
 
-  const closeWithParent = () => { if (theaterWindow && !theaterWindow.isDestroyed()) theaterWindow.close(); };
+  const closeWithParent = () => { if (!theaterWindow.isDestroyed()) theaterWindow.close(); };
   parent?.once("closed", closeWithParent);
   theaterWindow.on("closed", () => {
     parent?.removeListener("closed", closeWithParent);
-    theaterWindow = null;
+    if (theaterWindows.get(partition) === theaterWindow) theaterWindows.delete(partition);
   });
 
   theaterWindow.loadURL(THEATER_HOME);
   return theaterWindow;
 }
 
-module.exports = { THEATER_HOME, THEATER_PARTITION, openTheaterWindow };
+// 测试模式：一次打开左右并排的两个放映室，各自独立登录，模拟两个人。
+function openTheaterTestPair({ icon, parent, workArea }) {
+  const width = Math.floor(workArea.width / 2);
+  return ["A", "B"].map((label, index) => openTheaterWindow({
+    icon,
+    parent,
+    label,
+    partition: `persist:oh-theater-test-${label.toLowerCase()}`,
+    bounds: { x: workArea.x + index * width, y: workArea.y, width, height: workArea.height },
+  }));
+}
+
+module.exports = { THEATER_HOME, THEATER_PARTITION, openTheaterTestPair, openTheaterWindow };
