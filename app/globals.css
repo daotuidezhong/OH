@@ -93,6 +93,13 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .music-hotspot { --hint-bottom: 10%; }
 .scene-door { --hint-bottom: 42%; }
 .planner-hotspot.room-hint { --hint-bottom: -34px; }
+/* 放映室小电视：电视柜 + 显像管电视，靠墙立在窗户与门之间，与唱片机柜同一条地面线；
+   尺寸按房间原图比例（168×220 / 1672×941），源文件见 build/art/theater-tv/；悬停时屏幕亮起。 */
+.theater-tv { --hint-bottom: calc(100% - 4px); position: absolute; z-index: 49; left: 63%; top: 48.6%; width: 10.05%; height: 23.4%; padding: 0; border: 0; background: transparent; transform: translate(-50%, -92.8%); }
+.theater-tv img { display: block; width: 100%; height: 100%; image-rendering: pixelated; filter: var(--scene-lighting); pointer-events: none; }
+.theater-tv .theater-tv-on { position: absolute; inset: 0; opacity: 0; filter: drop-shadow(0 0 8px rgba(255, 196, 120, .6)); transition: opacity .16s ease; }
+.theater-tv:focus-visible { outline: 3px dashed rgba(123, 76, 53, .85); outline-offset: 4px; }
+.theater-tv:focus-visible .theater-tv-on { opacity: 1; }
 .room-hint:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
 :is(.kitchen-hotspot, .music-hotspot, .bar-hotspot):focus-visible { outline: 4px dashed rgba(123, 76, 53, .85); outline-offset: -8px; }
 .vinyl-player { margin-top: 17px; overflow: hidden; border: 4px solid #4b2d22; border-radius: 10px; background: #6d3d27; box-shadow: 0 6px 0 #382119, inset 0 0 0 3px #a66a3b; }
@@ -1091,6 +1098,7 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   .game-dock button:hover { border-color: #d2b07c; background: #ecd8b2; }
   .game-dock button.active:hover { background: rgba(239, 201, 137, .4); }
   .room-hint:hover::after { opacity: 1; transform: translate(-50%, 0); }
+  .theater-tv:hover .theater-tv-on { opacity: 1; }
   .ingredient-card:hover { border-color: var(--berry-dark); box-shadow: 0 7px 0 #d8a9a2; transform: translateY(-2px); }
   .bar-ingredients > div > button:hover { border-color: var(--berry-dark); transform: translateY(-1px); }
 }

@@ -127,8 +127,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.14";
+const RELEASE_VERSION = "0.9.15";
 const RELEASE_NOTES = [
+  { version: "0.9.15", items: ["新增放映室：窗户和门之间靠墙放了一台复古电视柜，鼠标移上去屏幕会亮起，点击即可进入放映室", "放映室直接打开 B站，内置“一起看”：两人在右下角面板填同一个房间名和密码，一人建房一人加入，播放、暂停、拖动进度自动同步，还能文字聊天", "放映室使用独立的 B站登录，读不到游戏存档；B站以外的链接会用系统浏览器打开"] },
   { version: "0.9.14", items: ["猫咪八方向行走统一体型和落脚点，转向不再忽大忽小；打哈欠、洗脸、睡觉等动作与坐姿对齐，切换时不再横跳", "原地状态改为扑爪、张望、洗脸等动作，不再踩着走路帧原地腾空；精力充沛时会真的在屋里走一小段", "走路整段连续，起步加速、到站减速，迈腿跟随移动距离不再滑步，静止时会轻轻呼吸，动作之间直接切帧", "顶部状态与底部按钮换成像素图标，领取草莓时会从完成的位置飞入计数"] },
   { version: "0.9.13", items: ["首页墙上小日历改为一、二、三、四、五、六、日的星期排列", "同一天、同一时段内的同色安排折叠成组，色标显示组别与数量，点开后仍能逐项编辑和拖动", "截图导入课表改由 OH 提供共用 DeepSeek 识别服务，所有玩家无需填写自己的 API Key", "移除完成文件夹旁的“完成 + 彩带”文字，保留任务完成与彩带动画"] },
   { version: "0.9.12", items: ["墙上照片板升级为周日程本，课程支持教学周、单双周重复和单次调课，下课后自动粉碎", "任务支持拖动调整日期和时段、完成归档、草莓奖励及关联橙子专注，上课和定时任务提前 10 分钟提醒", "可使用自己的 DeepSeek API Key 截图导入课表，逐行核对后再添加；日程随完整备份迁移，Key 单独保存在本机", "食物碗支持自由摆放并记住位置，优化像素信息栏、猫咪行走显示和行走时的存档写入频率", "日程本替代旧照片板，旧照片板内容将清除；日记及日记照片不受影响"] },
@@ -191,6 +192,7 @@ declare global {
         importBackup: () => Promise<BackupActionResult>;
         refreshCache: () => Record<string, string>;
       };
+      theater?: { open: () => void };
       journalPhotos?: {
         select: () => Promise<PhotoActionResult>;
         remove: (fileName: string) => Promise<boolean>;
@@ -1602,6 +1604,11 @@ export default function Home() {
     setToast("休息已结束，准备好后开始下一次专注吧");
   }
 
+  function openTheater() {
+    if (window.gameUpdater?.theater) window.gameUpdater.theater.open();
+    else setToast("放映室目前只在 Windows 版可用");
+  }
+
   function openOverlay(id: Exclude<OverlayId, null>) {
     setDecorating(false);
     if (id === "pomodoro") preparePomodoroAudio();
@@ -2640,6 +2647,12 @@ export default function Home() {
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot room-hint" data-hint="厨房烹饪" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot room-hint" data-hint="黑胶唱片" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
           {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot room-hint" data-hint="开始调酒" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
+          {game.scene === "room" && (
+            <button type="button" data-interactive data-scene-depth="tv" className="theater-tv room-hint" data-hint="进入放映室" onPointerDown={(event) => { event.stopPropagation(); openTheater(); }} aria-label="进入放映室">
+              <img src="/game/furniture-tv.png" alt="" draggable={false} />
+              <img className="theater-tv-on" src="/game/furniture-tv-on.png" alt="" draggable={false} />
+            </button>
+          )}
           {game.scene === "room" && <PlannerWall open={plannerOpen} planner={planner} today={today} now={plannerNow} onOpen={(rect) => { setPlannerOrigin(rect); setPlannerNow(Date.now()); setPlannerOpen(true); }} />}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {

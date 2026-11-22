@@ -58,6 +58,9 @@ contextBridge.exposeInMainWorld("gameUpdater", {
     select: () => ipcRenderer.invoke("journal-photo:select"),
     remove: (fileName) => ipcRenderer.invoke("journal-photo:remove", fileName),
   },
+  theater: {
+    open: () => ipcRenderer.send("theater:open"),
+  },
   pomodoro: {
     schedule: (endsAt, phase) => ipcRenderer.send("pomodoro:schedule", endsAt, phase),
     cancel: () => ipcRenderer.send("pomodoro:cancel"),

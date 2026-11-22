@@ -26,6 +26,8 @@ const eslintConfig = defineConfig([
     "scratch/**",
     "outputs/**",
     "outputs-photo-board/**",
+    // 第三方固定版本脚本，原样保留，不做 lint。
+    "electron/vendor/**",
   ]),
 ]);
 

@@ -95,6 +95,7 @@ async function loadMain(singleInstance, directory) {
       if (name === "electron-updater") return { autoUpdater: new EventEmitter() };
       if (name === "./storage.cjs") return { createStorage(...args) { calls.storage += 1; return createStorage(...args); } };
       if (name === "./netease.cjs") return require("../electron/netease.cjs");
+      if (name === "./theater.cjs") return { openTheaterWindow() {}, openTheaterTestPair() {} };
       return require(name);
     },
     __dirname: dirname(fileURLToPath(mainFile)), process,

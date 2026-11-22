@@ -20,6 +20,7 @@ export const ROOM_FIXED_OBSTACLES: Rect[] = [
   { left: 81, right: 98, top: 35, bottom: 52 },
   { left: 76, right: 94, top: 39, bottom: 51 },
   { left: 72, right: 100, top: 54, bottom: 90 },
+  { left: 58, right: 68, top: 0, bottom: 49 }, // 放映室小电视（电视柜占地）
 ];
 
 export function clampFurniturePosition(point: Point, footprint: { halfWidth: number; height: number }) {

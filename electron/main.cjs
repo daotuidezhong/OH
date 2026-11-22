@@ -1,4 +1,4 @@
-const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, Notification, protocol, safeStorage } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, nativeImage, net, Notification, protocol, safeStorage, screen } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -6,8 +6,12 @@ const { randomUUID } = require("node:crypto");
 const { pathToFileURL } = require("node:url");
 const { loadDesktopPlaylist } = require("./netease.cjs");
 const { createStorage } = require("./storage.cjs");
+const { openTheaterTestPair, openTheaterWindow } = require("./theater.cjs");
 
 app.setName("OH");
+// 放映室测试模式：使用单独的数据目录（也不与已安装的 OH 抢单实例锁），点小电视会打开 A、B 两个放映室窗口。
+const theaterTestMode = process.argv.includes("--theater-test");
+if (theaterTestMode) app.setPath("userData", path.join(app.getPath("appData"), "OH-theater-test"));
 const WINDOWS_APP_ID = app.isPackaged
   ? "com.berryworkout.island.desktop.v2"
   : "com.berryworkout.island.development";
@@ -241,6 +245,12 @@ if (singleInstance) app.whenReady().then(() => {
     }, delay);
   });
   ipcMain.on("pomodoro:cancel", (event) => { if (event.sender === window.webContents) cancelPomodoroTimer(); });
+  ipcMain.on("theater:open", (event) => {
+    if (event.sender !== window.webContents) return;
+    const icon = app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png");
+    if (theaterTestMode) openTheaterTestPair({ icon, parent: window, workArea: screen.getDisplayMatching(window.getBounds()).workArea });
+    else openTheaterWindow({ icon, parent: window });
+  });
   autoUpdater.autoDownload = false;
   autoUpdater.on("update-available", (info) => sendUpdate({
     phase: "available",
