@@ -78,9 +78,9 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .bar-hotspot { left: 79%; top: 54%; width: 21%; height: 38%; }
 .bar-hotspot::after { position: absolute; left: 50%; bottom: 12%; padding: 8px 10px; border: 2px solid #765247; border-radius: 10px; background: #fff2d2; box-shadow: 0 3px 0 #b98b68; color: #6f4238; content: "开始调酒"; opacity: 0; transform: translate(-50%, 5px); transition: opacity .14s ease, transform .18s var(--ease-out); font-size: 11px; white-space: nowrap; }
 .bar-hotspot:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
-/* 放映室小电视：电视柜 + 显像管电视，立在窗户与门前方的地板上；悬停时屏幕亮起并提示“进入放映室” */
-.theater-tv { position: absolute; z-index: 50; left: 63%; top: 50%; width: clamp(48px, 8.5vw, 160px); padding: 0; border: 0; background: transparent; transform: translate(-50%, -94%); transition: transform .18s var(--ease-out); }
-.theater-tv img { display: block; width: 100%; image-rendering: pixelated; filter: var(--scene-lighting); pointer-events: none; }
+/* 放映室小电视：电视柜 + 显像管电视，靠墙立在窗户与门之间，与唱片机柜同一条地面线；尺寸按房间原图比例（168×220 / 1672×941）；悬停时屏幕亮起并提示“进入放映室” */
+.theater-tv { position: absolute; z-index: 49; left: 63%; top: 48.6%; width: 10.05%; height: 23.4%; padding: 0; border: 0; background: transparent; transform: translate(-50%, -92.8%); }
+.theater-tv img { display: block; width: 100%; height: 100%; image-rendering: pixelated; filter: var(--scene-lighting); pointer-events: none; }
 .theater-tv .theater-tv-on { position: absolute; inset: 0; opacity: 0; filter: drop-shadow(0 0 8px rgba(255, 196, 120, .6)); transition: opacity .16s ease; }
 .theater-tv span { position: absolute; left: 50%; bottom: calc(100% + 2px); padding: 7px 10px; border: 2px solid #765247; border-radius: 10px; background: #fff2d2; box-shadow: 0 3px 0 #b98b68; color: #6f4238; font-size: 11px; white-space: nowrap; opacity: 0; transform: translate(-50%, 5px); transition: opacity .14s ease, transform .18s var(--ease-out); pointer-events: none; }
 .theater-tv:focus-visible { outline: 3px dashed rgba(123, 76, 53, .85); outline-offset: 4px; }
@@ -907,7 +907,6 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 
 @media (hover: hover) and (pointer: fine) {
   .bar-hotspot:hover::after { opacity: 1; transform: translate(-50%, 0); }
-  .theater-tv:hover { transform: translate(-50%, -95.5%); }
   .theater-tv:hover .theater-tv-on { opacity: 1; }
   .theater-tv:hover span { opacity: 1; transform: translate(-50%, 0); }
   .ingredient-card:hover { border-color: var(--berry-dark); box-shadow: 0 7px 0 #d8a9a2; transform: translateY(-2px); }
