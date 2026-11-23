@@ -4,6 +4,14 @@
   if (window.__ohTheater) return;
   const SEND_TXT_MSG = 30;
   const GOT_TXT_MSG = 31;
+  // “我在”信号：VideoTogether 的在线人数只在页面上有视频、成员在同步视频时才会向服务器报到，
+  // 两个人都还在 B站首页时人数永远是 1。两边进房后每隔几秒互发一个隐藏信号（和聊天走同一条连接），
+  // 收到对方的信号就算 TA 在线。
+  const PRESENCE = "\u2063OH:HERE";
+  const PRESENCE_EVERY_MS = 6000;
+  const PRESENCE_TIMEOUT_MS = 20000;
+  let lastPresenceSentAt = 0;
+  let partnerSeenAt = 0;
   const queue = [];
   const events = [];
   const sentIds = new Set();
@@ -41,6 +49,9 @@
     const msg = data.data && data.data.msg;
     if (typeof msg !== "string") return;
     if (id && sentIds.has(id)) { sentIds.delete(id); return; } // 自己发的回声，界面里已经显示过
+    if (msg === PRESENCE) { partnerSeenAt = Date.now(); return; }
+    // 对方发来任何消息也说明 TA 在
+    partnerSeenAt = Date.now();
     queue.push({ msg, at: Date.now() });
     if (queue.length > 50) queue.shift();
   });
@@ -121,6 +132,22 @@
   };
   setInterval(join, 1000);
 
+  const sendRaw = (text) => {
+    const id = `oh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    sentIds.add(id);
+    window.postMessage({ source: "VideoTogether", type: SEND_TXT_MSG, data: { currentSendingMsgId: id, value: text } }, "*");
+  };
+  const inOurRoom = () => {
+    const ext = extension();
+    return Boolean(ext && config && ext.RoleEnum && ext.role !== ext.RoleEnum.Null && ext.roomName === config.name);
+  };
+  const announcePresence = () => {
+    if (!inOurRoom() || Date.now() - lastPresenceSentAt < PRESENCE_EVERY_MS) return;
+    lastPresenceSentAt = Date.now();
+    sendRaw(PRESENCE);
+  };
+  setInterval(announcePresence, 1000);
+
   // 诊断：VideoTogether 内部的连接状态，票根上点线路文字可以展开查看（排查两台电脑连不上）
   const diagnose = (ext) => {
     const text = (value) => (value === undefined || value === null ? "" : String(value)).slice(0, 160);
@@ -141,6 +168,7 @@
       role: ext.role === ext.RoleEnum.Master ? "房主" : ext.role === ext.RoleEnum.Member ? "成员" : "未进房",
       room: text(ext.roomName),
       members: Number(ext.ctxMemberCount) || 0,
+      partnerSignal: partnerSeenAt ? Math.round((Date.now() - partnerSeenAt) / 1000) : -1,
       status,
       statusColor,
       page: text(typeof location !== "undefined" ? location.href : ""),
@@ -154,10 +182,8 @@
       join();
     },
     send(text) {
-      if (typeof text !== "string" || !text) return false;
-      const id = `oh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-      sentIds.add(id);
-      window.postMessage({ source: "VideoTogether", type: SEND_TXT_MSG, data: { currentSendingMsgId: id, value: text } }, "*");
+      if (typeof text !== "string" || !text || text === PRESENCE) return false;
+      sendRaw(text);
       return true;
     },
     setSmall(next) {
@@ -167,11 +193,13 @@
     drain() {
       const ext = extension();
       silence(ext);
+      announcePresence();
       const role = ext ? (ext.role === ext.RoleEnum.Master ? "master" : ext.role === ext.RoleEnum.Member ? "member" : "none") : "loading";
       return {
         role,
         inRoom: Boolean(ext && config && ext.role !== ext.RoleEnum.Null && ext.roomName === config.name),
-        members: ext ? Number(ext.ctxMemberCount) || 0 : 0,
+        // VideoTogether 的人数（有视频同步时才准）和“我在”信号取大的
+        members: Math.max(ext ? Number(ext.ctxMemberCount) || 0 : 0, partnerSeenAt && Date.now() - partnerSeenAt < PRESENCE_TIMEOUT_MS ? 2 : 0),
         // 连的是哪条线路：两台电脑不一样就连不上
         line: pinnedHost ? (pinnedHost === MAIN_HOST ? "主线路" : "国内线路") : "",
         hasVideo: Boolean(document.querySelector("video")),

@@ -81,7 +81,8 @@ function DiagPanel({ diag, line, onClose }: { diag?: Record<string, string | num
           ["对时成功", `${yes(diag.httpOk)}${diag.httpOk ? `（往返 ${Math.round(Number(diag.minTrip) * 1000)} 毫秒）` : ""}`],
           ["身份", String(diag.role)],
           ["房间", String(diag.room)],
-          ["服务器上的人数", String(diag.members)],
+          ["服务器上的人数", `${String(diag.members)}（有视频在同步时才准）`],
+          ["收到对方信号", Number(diag.partnerSignal) < 0 ? "✗ 还没收到" : `✓ ${String(diag.partnerSignal)} 秒前`],
           ["插件状态", `${String(diag.status || "（无）")}${diag.statusColor === "red" ? "  ⚠" : ""}`],
           ["页面", String(diag.page)],
         ];
