@@ -8,13 +8,15 @@ const bridgeSource = await readFile(new URL("../electron/theater-bridge.js", imp
 const theaterMain = await readFile(new URL("../electron/theater.cjs", import.meta.url), "utf8");
 
 /** 最小的页面环境 + 假 VideoTogether，验证放映厅桥如何遥控它。 */
-function loadBridge() {
+function loadBridge({ savedHost = "https://vt-cn.example:5000/", fetchConfig } = {}) {
   const listeners = new Map();
   const classes = new Set();
   const calls = [];
   const window = {
     addEventListener(type, callback) { listeners.set(type, [...(listeners.get(type) ?? []), callback]); },
     postMessage(data) { for (const callback of listeners.get("message") ?? []) callback({ data, source: window }); },
+    // 上次锁定的同步服务器（存在本地）
+    localStorage: { store: new Map(savedHost ? [["oh-theater-vt-host", savedHost]] : []), getItem(key) { return this.store.get(key) ?? null; }, setItem(key, value) { this.store.set(key, value); } },
   };
   const extension = {
     RoleEnum: { Null: 1, Master: 2, Member: 3 },
@@ -25,6 +27,9 @@ function loadBridge() {
     CreateRoom(name, password) { calls.push(["create", name, password]); this.role = 2; this.roomName = name; },
     JoinRoom(name, password) { calls.push(["join", name, password]); this.role = 3; this.roomName = name; },
     exitRoom() { calls.push("exit"); this.role = 1; this.roomName = ""; },
+    video_together_host: "https://vt.panghair.com:5000/",
+    video_together_main_host: "https://vt.panghair.com:5000/",
+    SyncTimeWithServer(url) { calls.push(["sync-time", url]); },
   };
   const document = {
     head: { appendChild() {} },
@@ -33,7 +38,8 @@ function loadBridge() {
     querySelector: () => ({}),
   };
   window.document = document;
-  const context = vm.createContext({ window, document, console, setInterval: () => 0, Date, Math, Set, Number, Boolean, JSON });
+  const timers = [];
+  const context = vm.createContext({ window, document, console, setInterval: () => 0, setTimeout: (fn) => timers.push(fn), Date, Math, Set, Number, Boolean, JSON, atob, ...(fetchConfig ? { fetch: fetchConfig } : {}) });
   vm.runInContext(bridgeSource, context);
   window.videoTogetherExtension = extension;
   const fire = (type, extra = {}) => {
@@ -44,7 +50,7 @@ function loadBridge() {
   const raw = window.__ohTheater;
   // vm 沙箱里的数组原型不同，取出时转成普通值再比较。
   const api = { ...raw, drain: () => JSON.parse(JSON.stringify(raw.drain())) };
-  return { api, window, extension, calls, classes, fire };
+  return { api, window, extension, calls, classes, fire, timers };
 }
 
 test("bridge creates or joins the shared room exactly once and silences VideoTogether speech", () => {
@@ -61,7 +67,7 @@ test("bridge creates or joins the shared room exactly once and silences VideoTog
   member.api.configure({ ...credentials, role: "member" });
   assert.deepEqual(member.calls, [["join", credentials.name, credentials.password]]);
   member.extension.ctxMemberCount = 2;
-  assert.deepEqual({ ...member.api.drain(), messages: [], events: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [] });
+  assert.deepEqual({ ...member.api.drain(), messages: [], events: [] }, { role: "member", inRoom: true, members: 2, line: "国内线路", hasVideo: true, messages: [], events: [] });
 });
 
 test("bridge relays partner messages, hides its own echoes, and sends through VideoTogether", () => {
@@ -96,4 +102,38 @@ test("small screen swallows clicks and asks to enlarge; enlarged screen passes c
 test("main process and theater page derive the same room credentials", () => {
   assert.match(theaterMain, /return \{ name: `OH-THEATER-\$\{code\}`, password: `oh-\$\{code\.toLowerCase\(\)\}-together` \};/);
   assert.deepEqual(roomCredentials("K7Q2MX"), { name: "OH-THEATER-K7Q2MX", password: "oh-k7q2mx-together" });
+});
+
+test("both computers are pinned to the same sync server before joining", async () => {
+  // 第一次打开：从 VideoTogether 的国内 CDN 配置取国内服务器，取到之前不进房
+  let resolveConfig;
+  const fetchConfig = () => new Promise((resolve) => { resolveConfig = resolve; });
+  const fresh = loadBridge({ savedHost: null, fetchConfig });
+  const credentials = roomCredentials("K7Q2MX");
+  fresh.api.configure({ ...credentials, role: "member" });
+  assert.deepEqual(fresh.calls, [], "服务器定下来之前不进房");
+  resolveConfig({ json: async () => ({ apiHostChina: "https://vt-cn.example:5000/" }) });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  fresh.api.configure({ ...credentials, role: "member" });
+  assert.deepEqual(fresh.calls.at(-1), ["join", credentials.name, credentials.password]);
+  assert.equal(fresh.extension.video_together_host, "https://vt-cn.example:5000/");
+  assert.equal(fresh.window.localStorage.getItem("oh-theater-vt-host"), "https://vt-cn.example:5000/", "记下来，下次打开立刻可用");
+  // VideoTogether 自己想切到别的服务器：仍然只连锁定的那台
+  fresh.extension.SyncTimeWithServer("https://vt.panghair.com:5000/");
+  assert.deepEqual(fresh.calls.at(-1), ["sync-time", "https://vt-cn.example:5000/"]);
+  assert.equal(fresh.api.drain().line, "国内线路");
+
+  // 已经连到了别的服务器上：退出、换到锁定的服务器重新进房
+  const saved = loadBridge();
+  saved.extension.role = 3; saved.extension.roomName = credentials.name;
+  saved.api.configure({ ...credentials, role: "member" });
+  assert.ok(saved.calls.includes("exit"));
+  assert.equal(saved.extension.video_together_host, "https://vt-cn.example:5000/");
+
+  // CDN 配置取不到：4 秒后退回主服务器（票根上能看到是哪条线路）
+  const offline = loadBridge({ savedHost: null, fetchConfig: () => Promise.reject(new Error("offline")) });
+  for (const timer of offline.timers) timer();
+  offline.api.configure({ ...credentials, role: "master" });
+  assert.equal(offline.extension.video_together_host, "https://vt.panghair.com:5000/");
+  assert.equal(offline.api.drain().line, "主线路");
 });

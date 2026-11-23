@@ -55,12 +55,57 @@
   // VideoTogether 的弹窗（alert）会卡住整个 B站页面，放映厅里不弹
   window.alert = (message) => { console.warn("[oh-theater] VideoTogether:", message); };
 
+  // ---- 固定同步服务器 ----
+  // VideoTogether 有两台互不相通的服务器：先连主服务器，3 秒没连通就去 CDN 配置里取国内服务器改连；
+  // 两个请求都在路上时，谁后响应就用谁。两台电脑网络不同，就会落在不同服务器上，房间名一样也永远等不到对方。
+  // 这里和 VideoTogether 一样从它的国内 CDN 配置取国内服务器地址，两边拿到的是同一份，然后锁定只用它。
+  const CDN_CONFIG = "https://videotogether.oss-cn-hangzhou.aliyuncs.com/release/cdn-config.json";
+  const MAIN_HOST = "https://vt.panghair.com:5000/";
+  const HOST_KEY = "oh-theater-vt-host";
+  let pinnedHost = null;
+  try { pinnedHost = window.localStorage.getItem(HOST_KEY) || null; } catch {}
+  const decodeHost = (value) => (typeof value === "string" && value ? (value.startsWith("https") ? value : atob(value)) : "");
+  const resolveHost = () => {
+    let settled = false;
+    const settle = (host) => {
+      if (settled) return;
+      settled = true;
+      pinnedHost = host;
+      try { window.localStorage.setItem(HOST_KEY, host); } catch {}
+    };
+    setTimeout(() => settle(pinnedHost || MAIN_HOST), 4000); // 取不到配置：沿用上次的，或主服务器
+    try {
+      fetch(CDN_CONFIG, { cache: "no-store" })
+        .then((response) => response.json())
+        .then((cdn) => { const host = decodeHost(cdn && cdn.apiHostChina); if (/^https:\/\//.test(host)) settle(host); })
+        .catch(() => {});
+    } catch {}
+  };
+  if (typeof fetch === "function") resolveHost();
+  // 让 VideoTogether 只连锁定的服务器；已经连到别的服务器上了就退出、换过来重新进房
+  const pinHost = (ext) => {
+    if (!pinnedHost) return false;
+    if (!ext.__ohHostPinned && typeof ext.SyncTimeWithServer === "function") {
+      const original = ext.SyncTimeWithServer;
+      ext.SyncTimeWithServer = function (url) { return original.call(this, pinnedHost || url); };
+      ext.__ohHostPinned = true;
+    }
+    ext.video_together_main_host = pinnedHost;
+    if (ext.video_together_host !== pinnedHost) {
+      ext.video_together_host = pinnedHost;
+      if (ext.role !== ext.RoleEnum.Null) { try { ext.exitRoom(); } catch {} lastJoinAt = 0; }
+    }
+    return true;
+  };
+
   const join = () => {
     // 加载器已关掉“标签页存储”（见 vendor/videotogether/README.md）；设置被别处覆盖时再关一次
     if (window.VideoTogetherStorage && window.VideoTogetherStorage.VideoTogetherTabStorageEnabled) window.VideoTogetherStorage.VideoTogetherTabStorageEnabled = false;
     const ext = extension();
     if (!ext || !config) return;
     silence(ext);
+    // 服务器定下来之前不进房
+    if (!pinHost(ext)) return;
     const { Null, Master, Member } = ext.RoleEnum;
     const wanted = config.role === "master" ? Master : Member;
     if (ext.role !== Null && ext.roomName === config.name) return;
@@ -101,6 +146,8 @@
         role,
         inRoom: Boolean(ext && config && ext.role !== ext.RoleEnum.Null && ext.roomName === config.name),
         members: ext ? Number(ext.ctxMemberCount) || 0 : 0,
+        // 连的是哪条线路：两台电脑不一样就连不上
+        line: pinnedHost ? (pinnedHost === MAIN_HOST ? "主线路" : "国内线路") : "",
         hasVideo: Boolean(document.querySelector("video")),
         messages: queue.splice(0),
         events: events.splice(0),

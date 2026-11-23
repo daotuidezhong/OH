@@ -149,6 +149,7 @@ async function poll(context) {
       members: Number(next.members) || 0,
       hasVideo: Boolean(next.hasVideo),
       messages: (Array.isArray(next.messages) ? next.messages : []).filter((item) => item && typeof item.msg === "string").map((item) => ({ msg: item.msg.slice(0, 400) })),
+      line: typeof next.line === "string" ? next.line.slice(0, 10) : "",
       canGoBack: context.view.webContents.navigationHistory.canGoBack(),
       ambient: await sampleScreen(context),
     });

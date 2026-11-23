@@ -1,6 +1,6 @@
 {
   "name": "berry-workout-island",
-  "version": "0.9.18",
+  "version": "0.9.19",
   "private": true,
   "engines": {
     "node": ">=22.13.0"
