@@ -86,6 +86,13 @@ test("theater hall rebuilt from the reference image: dolls, hold-hands, bubbles 
   assert.match(stage, /<Sprite sprite=\{SPRITES\.seatRightEmpty\} className=\{`seat-empty \$\{right \? "is-taken" : ""\}`\} \/>/);
   assert.match(css, /\.seat-empty\.is-taken \{ opacity: 0; \}/);
   assert.match(stage, /\{hold && <Sprite sprite=\{SPRITES\.armLeft\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.armRight\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.heart\}/);
+  // 离开放映厅：场景右上角按钮和配对卡片都能关掉放映厅窗口
+  const preload = await read("../electron/theater-preload.cjs");
+  const theaterMain = await read("../electron/theater.cjs");
+  assert.match(scene, /className="leave-button" onClick=\{\(\) => bridge\?\.close\(\)\}>离开放映厅</);
+  assert.match(scene, /onLeave=\{\(\) => bridge\?\.close\(\)\}/);
+  assert.match(preload, /close: \(\) => ipcRenderer\.send\("theater:close"\)/);
+  assert.match(theaterMain, /ipcMain\.on\("theater:close", \(event\) => \{\s+const context = contextFor\(event\);\s+if \(context && !context\.window\.isDestroyed\(\)\) context\.window\.close\(\);/);
   // 舞台铺满窗口时被裁掉的部分，贴边的界面元素往里收，不会被切掉
   assert.match(stage, /"--cut-x": `\$\{Math\.max\(0, -box\.left\)\}px`/);
   assert.match(css, /\.ticket-wrap \{[^}]*margin: var\(--cut-y, 0px\) 0 0 var\(--cut-x, 0px\)/);

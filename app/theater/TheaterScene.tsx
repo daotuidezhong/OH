@@ -20,6 +20,8 @@ export type TheaterBridge = {
   navigate: (action: "home" | "back") => void;
   onState: (callback: (status: TheaterStatus) => void) => () => void;
   onEnlarge: (callback: (enlarged: boolean) => void) => () => void;
+  /** 关掉放映厅窗口（游戏主窗口不受影响） */
+  close: () => void;
 };
 
 declare global {
@@ -36,7 +38,7 @@ const EMPTY_STATUS: TheaterStatus = { role: "loading", inRoom: false, members: 0
 
 let bubbleSeq = 0;
 
-function PairingCard({ onCreate, onJoin }: { onCreate: () => void; onJoin: (code: string) => void }) {
+function PairingCard({ onCreate, onJoin, onLeave }: { onCreate: () => void; onJoin: (code: string) => void; onLeave: () => void }) {
   const [input, setInput] = useState("");
   const code = normalizeRoomCode(input);
   return (
@@ -58,6 +60,7 @@ function PairingCard({ onCreate, onJoin }: { onCreate: () => void; onJoin: (code
           </form>
         </div>
         <p className="pairing-note">配对一次就好，以后打开放映厅会自动入座。</p>
+        <button type="button" className="pairing-leave" onClick={onLeave}>先不配对，离开放映厅</button>
       </section>
     </div>
   );
@@ -246,6 +249,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
             <button type="button" onClick={() => bridge?.navigate("back")} disabled={!status.canGoBack}>后退</button>
             <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
             <button type="button" className="enlarge-button" onClick={() => setEnlarged(true)}>放大银幕</button>
+            <button type="button" className="leave-button" onClick={() => bridge?.close()}>离开放映厅</button>
           </nav>
         )}
         {config && (
@@ -274,6 +278,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
         <PairingCard
           onCreate={() => saveConfig({ code: generateRoomCode(), role: "master" })}
           onJoin={(code) => saveConfig({ code, role: "member" })}
+          onLeave={() => bridge?.close()}
         />
       )}
     </main>

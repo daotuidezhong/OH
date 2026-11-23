@@ -15,4 +15,5 @@ contextBridge.exposeInMainWorld("ohTheater", {
   navigate: (action) => ipcRenderer.send("theater:navigate", action),
   onState: (callback) => subscribe("theater:state", callback),
   onEnlarge: (callback) => subscribe("theater:enlarge", callback),
+  close: () => ipcRenderer.send("theater:close"),
 });

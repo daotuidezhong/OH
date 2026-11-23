@@ -106,6 +106,8 @@ button, input { font: inherit; }
 .screen-controls button:disabled { opacity: .55; cursor: default; }
 .screen-controls .enlarge-button { border-color: var(--th-rose-light); background: var(--th-rose); color: #fff; }
 .screen-controls .enlarge-button:hover { background: #d9466a !important; }
+/* 离开放映厅：和上面三个按钮隔开一点，样式更轻，避免误点 */
+.screen-controls .leave-button { margin-top: calc(var(--u) * 8); border-style: dashed; border-color: rgba(255, 220, 200, .4); background: rgba(24, 10, 14, .62); color: rgba(255, 232, 220, .9); font-weight: 600; }
 
 /* ---------- 聊天条（参考图底部） ---------- */
 .chat-bar { position: absolute; z-index: 10; margin-top: calc(-1 * var(--cut-y, 0px)); display: flex; align-items: stretch; gap: calc(var(--u) * 10); padding: calc(var(--u) * 7) calc(var(--u) * 10); border: calc(var(--u) * 1.5) solid rgba(255, 190, 190, .3); border-radius: calc(var(--u) * 14); background: rgba(48, 18, 28, .8); box-shadow: 0 calc(var(--u) * 6) calc(var(--u) * 18) rgba(0, 0, 0, .45); }
@@ -153,6 +155,8 @@ button, input { font: inherit; }
 .pairing-secondary { background: var(--th-pink); }
 .pairing-secondary:disabled { opacity: .45; cursor: default; }
 .pairing-note { margin: 14px 0 0; font-size: 12px; color: #a0806a; text-align: center; }
+.pairing-leave { display: block; margin: 12px auto 0; padding: 4px 10px; border: 0; background: none; color: #9a6a5e; font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.pairing-leave:hover { color: #6a3a30; }
 
 button:focus-visible, input:focus-visible { outline: 2px solid #ffd27a; outline-offset: 2px; }
 

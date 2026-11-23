@@ -195,6 +195,11 @@ function setupIpc() {
     if (!context || typeof text !== "string" || !text || text.length > 400) return false;
     return runInView(context, `window.__ohTheater ? window.__ohTheater.send(${JSON.stringify(text)}) : false`);
   });
+  // 场景里的“离开放映厅”：关掉放映厅窗口，游戏主窗口不受影响
+  ipcMain.on("theater:close", (event) => {
+    const context = contextFor(event);
+    if (context && !context.window.isDestroyed()) context.window.close();
+  });
   ipcMain.on("theater:navigate", (event, action) => {
     const context = contextFor(event);
     if (!context) return;
