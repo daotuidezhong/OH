@@ -56,6 +56,7 @@ test("bridge creates or joins the shared room exactly once and silences VideoTog
   assert.deepEqual(master.calls, [["create", credentials.name, credentials.password], "tick"]);
   master.api.configure({ ...credentials, role: "master" });
   assert.equal(master.calls.filter((call) => Array.isArray(call)).length, 1, "already in the room: no second create");
+  assert.equal(master.calls.filter((call) => call === "tick").length, 1, "只在建房时多跑一次，之后不额外加请求（服务器会限流）");
   master.extension.gotTextMsg("x", "hello");
   assert.ok(!master.calls.includes("speak"), "text-to-speech replaced by bubbles");
 
@@ -63,7 +64,7 @@ test("bridge creates or joins the shared room exactly once and silences VideoTog
   member.api.configure({ ...credentials, role: "member" });
   assert.deepEqual(member.calls, [["join", credentials.name, credentials.password], "tick"]);
   member.extension.ctxMemberCount = 2;
-  assert.deepEqual({ ...member.api.drain(), messages: [], events: [], controls: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [], controls: [] });
+  assert.deepEqual({ ...member.api.drain(), messages: [], events: [], controls: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [], controls: [], vtError: "" });
 });
 
 test("bridge relays partner messages, hides its own echoes, and sends through VideoTogether", () => {

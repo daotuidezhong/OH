@@ -9,7 +9,7 @@ import { ReferenceStage } from "./ReferenceStage";
 import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
 type TheaterControl = { a: "pause" | "play" | "seek" | "url"; t: number };
-type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; controls?: TheaterControl[]; ambient?: number[] | null };
+type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; controls?: TheaterControl[]; vtError?: string; ambient?: number[] | null };
 
 const clock = (seconds: number) => {
   const total = Math.max(0, Math.floor(seconds));
@@ -217,7 +217,8 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
   };
 
   const talking = (side: Bubble["side"]) => bubbles.some((bubble) => bubble.side === side && now - bubble.at < TALK_MS);
-  const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : "等 TA 入座…";
+  // 同步服务连不上时显示原因（VideoTogether 的错误提示），方便排查
+  const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : status.vtError ? `连接中：${status.vtError}` : "等 TA 入座…";
   const latestPartner = [...bubbles].reverse().find((bubble) => bubble.side === partnerSide);
   const arriving = partnerOnline && now - arrivedAt < ARRIVE_MS;
   const light = screenLight(config ? status.ambient : null);

@@ -35,9 +35,9 @@
   style.id = "oh-theater-style";
   style.textContent = `
     #VideoTogetherWrapper, #videoTogetherLoading { display: none !important; }
-    html.oh-small:has(video), html.oh-small:has(video) body { overflow: hidden !important; background: #000 !important; }
-    html.oh-small:has(video) *:has(video) { transform: none !important; filter: none !important; contain: none !important; will-change: auto !important; }
-    html.oh-small video { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; z-index: 2147483646 !important; object-fit: contain !important; background: #000 !important; transform: none !important; }
+    html.oh-small.oh-video-page:has(video), html.oh-small.oh-video-page:has(video) body { overflow: hidden !important; background: #000 !important; }
+    html.oh-small.oh-video-page:has(video) *:has(video) { transform: none !important; filter: none !important; contain: none !important; will-change: auto !important; }
+    html.oh-small.oh-video-page video { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; z-index: 2147483646 !important; object-fit: contain !important; background: #000 !important; transform: none !important; }
     html.oh-small, html.oh-small * { cursor: zoom-in !important; }
   `;
   (document.head || document.documentElement).appendChild(style);
@@ -115,6 +115,8 @@
   const onMedia = (event) => {
     const video = event.target;
     if (!video || (video.tagName !== "VIDEO" && video.tagName !== "BWP-VIDEO") || !lastRoom || !inRole("Member")) return;
+    // 只认视频页上的主播放器：首页、列表里的预览小视频自己播放 / 暂停不算
+    if (typeof location === "undefined" || !isVideoPage(location.href) || video !== videoOf(extension())) return;
     if (Date.now() - loadedAt < SETTLE_MS) return;
     const room = lastRoom;
     // 房主在等对方缓冲时，VideoTogether 会让成员暂停 / 播放，那不是成员自己的操作
@@ -220,12 +222,9 @@
   };
 
   // VideoTogether 每 2 秒跑一次定时任务（连服务器、上传 / 拉取房间、更新在线人数）。
-  // 建房 / 加入后立刻跑一次，不用干等；对方还没来时每秒跑一次，对方一进来就能看到。
-  let lastKickAt = 0;
-  let enteredAt = 0;
+  // 建房 / 加入后立刻跑一次，不用干等第一个周期；之后交给它自己的节奏，不额外加请求（服务器会限流）。
   const kick = (ext) => {
     if (!ext || typeof ext.ScheduledTask !== "function") return;
-    lastKickAt = Date.now();
     try {
       const running = ext.ScheduledTask();
       if (running && typeof running.catch === "function") running.catch(() => {});
@@ -238,18 +237,13 @@
     silence(ext);
     const { Null, Master, Member } = ext.RoleEnum;
     const wanted = config.role === "master" ? Master : Member;
-    if (ext.role !== Null && ext.roomName === config.name) {
-      const alone = (Number(ext.ctxMemberCount) || 0) < 2;
-      if (alone && Date.now() - enteredAt < 120000 && Date.now() - lastKickAt >= 1000) kick(ext);
-      return;
-    }
+    if (ext.role !== Null && ext.roomName === config.name) return;
     if (Date.now() - lastJoinAt < 2000) return;
     lastJoinAt = Date.now();
     try {
       if (ext.role !== Null) ext.exitRoom();
       if (wanted === Master) ext.CreateRoom(config.name, config.password);
       else ext.JoinRoom(config.name, config.password);
-      enteredAt = Date.now();
       kick(ext);
     } catch (error) {
       console.error("[oh-theater] join failed", error);
@@ -276,6 +270,14 @@
       const ext = extension();
       silence(ext);
       checkPage();
+      // 小银幕只在视频页把播放器铺满；首页 / 搜索页照常显示（首页的预览小视频不会被当成正片放大成黑屏）
+      if (typeof location !== "undefined") document.documentElement.classList.toggle("oh-video-page", isVideoPage(location.href));
+      // VideoTogether 自己的状态栏（面板已隐藏）：报红色错误时把原因带给场景
+      let vtError = "";
+      try {
+        const statusText = document.querySelector("#videoTogetherStatusText");
+        if (statusText && statusText.style && statusText.style.color === "red") vtError = String(statusText.textContent || "").trim().slice(0, 60);
+      } catch {}
       const role = ext ? (ext.role === ext.RoleEnum.Master ? "master" : ext.role === ext.RoleEnum.Member ? "member" : "none") : "loading";
       return {
         role,
@@ -285,6 +287,7 @@
         messages: queue.splice(0),
         events: events.splice(0),
         controls: controls.splice(0),
+        vtError,
       };
     },
   };

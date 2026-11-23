@@ -71,7 +71,7 @@ function side(role, href) {
   const api = window.__ohTheater;
   api.configure({ ...credentials, role });
   const drain = () => JSON.parse(JSON.stringify(api.drain()));
-  return { api, window, video, extension, location, sent, drain, store };
+  return { api, window, video, extension, location, sent, drain, store, dispatch };
 }
 
 /** 假的 VideoTogether 服务器：转发聊天、把房间状态推给成员并让成员同步。 */
@@ -177,6 +177,16 @@ test("the viewer opens another video: the host switches too, without bouncing ba
   // 首页、搜索页不算换视频
   member.location.href = "https://search.bilibili.com/all?keyword=cat";
   member.drain();
+  assert.deepEqual(member.sent, []);
+});
+
+test("preview videos on the home page are not the viewer's actions", async () => {
+  const { member } = await pair();
+  member.location.href = "https://www.bilibili.com/";
+  const preview = { tagName: "VIDEO", ended: false, paused: true, currentTime: 3 };
+  // 首页上的预览小视频暂停 / 跳转：不发给房主
+  for (const type of ["pause", "seeked"]) member.dispatch(type, preview);
+  member.dispatch("pause", member.video);
   assert.deepEqual(member.sent, []);
 });
 

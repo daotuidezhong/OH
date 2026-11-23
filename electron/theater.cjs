@@ -153,6 +153,7 @@ async function poll(context) {
       controls: (Array.isArray(next.controls) ? next.controls : [])
         .filter((item) => item && ["pause", "play", "seek", "url"].includes(item.a))
         .map((item) => ({ a: item.a, t: Number(item.t) || 0 })),
+      vtError: typeof next.vtError === "string" ? next.vtError.slice(0, 60) : "",
       canGoBack: context.view.webContents.navigationHistory.canGoBack(),
       ambient: await sampleScreen(context),
     });
