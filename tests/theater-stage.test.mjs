@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { BUBBLE, EMPTY_SEAT, ME_DOLL, SCREEN, SPRITES, STAGE_H, STAGE_W, UI } from "../app/theater/stageLayout.ts";
+import { BUBBLE, EMPTY_SEAT, ME_DOLL, otherSide, SCREEN, seatOf, SPRITES, STAGE_H, STAGE_W, UI } from "../app/theater/stageLayout.ts";
 
 /** 读 WebP 文件头里的宽高（VP8X / VP8L / VP8）。 */
 async function webpSize(publicPath) {
@@ -28,11 +28,11 @@ test("every theater image matches its slot in the reference layout", async () =>
 test("screen hole is close to 16:9 and nothing on the seats overlaps it", () => {
   assert.ok(Math.abs(SCREEN.w / SCREEN.h - 16 / 9) < 0.03);
   const screenBottom = SCREEN.y + SCREEN.h;
-  for (const name of ["dollLeft", "armLeft", "armRight", "heart"]) {
+  for (const name of ["dollLeft", "armLeft", "armRight", "heart", "seatRightEmpty"]) {
     assert.ok(SPRITES[name].y > screenBottom, `${name} stays below the screen (Bilibili is drawn over it)`);
   }
   for (const side of ["left", "right"]) assert.ok(BUBBLE[side].y - 40 > screenBottom, `${side} bubble below the screen`);
-  assert.ok(EMPTY_SEAT.y > screenBottom);
+  for (const side of ["left", "right"]) assert.ok(EMPTY_SEAT[side].y > screenBottom);
 });
 
 test("hand-holding arms reach from each doll to the middle and meet", () => {
@@ -50,4 +50,14 @@ test("controls sit where the reference puts them and do not cover the screen", (
   assert.ok(UI.ticket.x < 40 && UI.ticket.y < 100, "ticket top-left");
   assert.ok(UI.controls.x > STAGE_W - 140, "buttons top-right");
   assert.ok(UI.chat.y > STAGE_H - 90 && Math.abs(UI.chat.x + UI.chat.w / 2 - STAGE_W / 2) < 40, "chat bar bottom centre");
+});
+
+test("seats are fixed: the creator sits on the right (white doll), the joiner on the left (pink doll)", () => {
+  assert.equal(seatOf("master"), "right");
+  assert.equal(seatOf("member"), "left");
+  assert.equal(otherSide("left"), "right");
+  assert.equal(otherSide("right"), "left");
+  // 空座位小图盖住整只白色玩偶
+  const seat = SPRITES.seatRightEmpty;
+  assert.ok(seat.x <= ME_DOLL.x && seat.y <= ME_DOLL.y && seat.x + seat.w >= ME_DOLL.x + ME_DOLL.w && seat.y + seat.h >= ME_DOLL.y + ME_DOLL.h);
 });

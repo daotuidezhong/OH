@@ -77,17 +77,21 @@ test("theater hall rebuilt from the reference image: dolls, hold-hands, bubbles 
   const css = await read("../app/theater/theater.css");
   const vite = await read("../desktop/vite.config.ts");
   assert.match(vite, /theater: path\.resolve\(import\.meta\.dirname, "theater\.html"\)/);
-  // 粉色蝴蝶结玩偶 = TA，只在对方上线时出现；戴蓝色耳机的玩偶 = 我
+  // 座位固定：创建的人 = 右边白色玩偶，加入的人 = 左边粉色玩偶；谁不在谁的座位就空着
   assert.match(scene, /const partnerOnline = Boolean\(config && status\.inRoom && status\.members >= 2\)/);
-  assert.match(scene, /<ReferenceStage\s+partner=\{partnerOnline\}\s+me=\{Boolean\(config\)\}/);
-  assert.match(stage, /\{partner && <Sprite sprite=\{SPRITES\.dollLeft\}/);
+  assert.match(scene, /const mySide = seatOf\(config\?\.role\)/);
+  assert.match(scene, /\{ \[mySide\]: Boolean\(config\), \[partnerSide\]: partnerOnline \}/);
+  assert.match(scene, /<ReferenceStage\s+left=\{seated\.left\}\s+right=\{seated\.right\}/);
+  assert.match(stage, /\{left && <Sprite sprite=\{SPRITES\.dollLeft\}/);
+  assert.match(stage, /<Sprite sprite=\{SPRITES\.seatRightEmpty\} className=\{`seat-empty \$\{right \? "is-taken" : ""\}`\} \/>/);
+  assert.match(css, /\.seat-empty\.is-taken \{ opacity: 0; \}/);
   assert.match(stage, /\{hold && <Sprite sprite=\{SPRITES\.armLeft\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.armRight\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.heart\}/);
   // 银幕在房间图下面，房间图不挡点击
   assert.match(stage, /className="screen-surface"[\s\S]*className="stage-room"/);
   assert.match(css, /\.stage-room \{[^}]*pointer-events: none/);
-  // TA 的消息冒在左边，我的在右边；牵手走专用信号
-  assert.match(scene, /if \(message\.kind === "hold"\) setHoldUntil[\s\S]*else addBubble\("left", message\.text\)/);
-  assert.match(scene, /if \(await bridge\.send\(text\)\) addBubble\("right", text\)/);
+  // 消息冒在发消息那个人的玩偶头上；牵手走专用信号
+  assert.match(scene, /if \(message\.kind === "hold"\) setHoldUntil[\s\S]*else addBubble\(partnerSideRef\.current, message\.text\)/);
+  assert.match(scene, /if \(await bridge\.send\(text\)\) addBubble\(mySide, text\)/);
   assert.match(scene, /await bridge\.send\(HOLD_TOKEN\)/);
   assert.match(scene, /\{holding \? "牵手中" : "牵手"\}/);
   assert.doesNotMatch(scene, /牵脚|FEET/);

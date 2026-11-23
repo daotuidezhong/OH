@@ -6,7 +6,7 @@ import {
   normalizeRoomCode, parseTheaterMessage, screenLight, type TheaterConfig,
 } from "./protocol";
 import { ReferenceStage } from "./ReferenceStage";
-import { BUBBLE, EMPTY_SEAT, place, point, UI } from "./stageLayout";
+import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
 type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; ambient?: number[] | null };
 type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
@@ -47,12 +47,12 @@ function PairingCard({ onCreate, onJoin }: { onCreate: () => void; onJoin: (code
         <div className="pairing-options">
           <div className="pairing-option">
             <h2>我来开放映厅</h2>
-            <p>生成一个放映厅码，发给 TA。</p>
+            <p>生成一个放映厅码，发给 TA。你坐右边，是戴蓝色耳机的白色玩偶。</p>
             <button type="button" className="pairing-primary" onClick={onCreate}>创建放映厅</button>
           </div>
           <form className="pairing-option" onSubmit={(event) => { event.preventDefault(); if (code) onJoin(code); }}>
             <h2>TA 已经开好了</h2>
-            <p>输入 TA 发来的 6 位放映厅码。</p>
+            <p>输入 TA 发来的 6 位放映厅码。你坐左边，是粉色蝴蝶结玩偶。</p>
             <input value={input} onChange={(event) => setInput(event.target.value)} placeholder="例如 K7Q 2MX" maxLength={9} aria-label="放映厅码" autoComplete="off" spellCheck={false} />
             <button type="submit" className="pairing-secondary" disabled={!code}>加入放映厅</button>
           </form>
@@ -78,9 +78,16 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
   const [copied, setCopied] = useState(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const partnerWasOnline = useRef(false);
+  const partnerSideRef = useRef<Bubble["side"]>("left");
 
   const partnerOnline = Boolean(config && status.inRoom && status.members >= 2);
   const holding = partnerOnline && holdUntil > now;
+  // 座位固定：创建放映厅的人坐右边（白色玩偶），加入的人坐左边（粉色玩偶）
+  const mySide = seatOf(config?.role);
+  const partnerSide = otherSide(mySide);
+  const seated = { [mySide]: Boolean(config), [partnerSide]: partnerOnline } as Record<Bubble["side"], boolean>;
+
+  useEffect(() => { partnerSideRef.current = partnerSide; }, [partnerSide]);
 
   useEffect(() => {
     if (!bridge) return;
@@ -104,18 +111,18 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
         const message = parseTheaterMessage(msg);
         if (!message) continue;
         if (message.kind === "hold") setHoldUntil(Date.now() + HOLD_MS);
-        else addBubble("left", message.text);
+        else addBubble(partnerSideRef.current, message.text);
       }
     });
     const offEnlarge = bridge.onEnlarge((next) => setEnlarged(next));
     return () => { offState(); offEnlarge(); };
   }, [bridge, addBubble]);
 
-  // TA 上线：粉色玩偶“刷新”到座位上
+  // TA 上线：TA 的玩偶“刷新”到座位上
   useEffect(() => {
     if (partnerOnline && !partnerWasOnline.current) {
       setArrivedAt(Date.now());
-      setNotice("TA 来啦，坐在你左边");
+      setNotice(`TA 来啦，坐在你${partnerSideRef.current === "left" ? "左" : "右"}边`);
     }
     if (!partnerOnline && partnerWasOnline.current) setNotice("TA 暂时离开了座位");
     partnerWasOnline.current = partnerOnline;
@@ -167,7 +174,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     const text = cleanChatText(draft);
     if (!text || !bridge) return;
     setDraft("");
-    if (await bridge.send(text)) addBubble("right", text);
+    if (await bridge.send(text)) addBubble(mySide, text);
     else setNotice("消息没发出去，稍后再试");
   };
 
@@ -190,18 +197,19 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
 
   const talking = (side: Bubble["side"]) => bubbles.some((bubble) => bubble.side === side && now - bubble.at < TALK_MS);
   const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : "等 TA 入座…";
-  const latestPartner = [...bubbles].reverse().find((bubble) => bubble.side === "left");
+  const latestPartner = [...bubbles].reverse().find((bubble) => bubble.side === partnerSide);
+  const arriving = partnerOnline && now - arrivedAt < ARRIVE_MS;
   const light = screenLight(config ? status.ambient : null);
   const lightStyle = { "--screen-rgb": light.rgb, "--screen-level": light.level } as CSSProperties;
 
   return (
     <main className={`theater ${enlarged ? "is-enlarged" : ""} ${holding ? "is-holding" : ""}`} data-partner={partnerOnline ? "online" : "offline"} style={lightStyle}>
       <ReferenceStage
-        partner={partnerOnline}
-        me={Boolean(config)}
+        left={seated.left}
+        right={seated.right}
         talkLeft={talking("left")}
         holding={holding}
-        arriving={partnerOnline && now - arrivedAt < ARRIVE_MS}
+        arriving={arriving ? partnerSide : null}
         surfaceRef={surfaceRef}
         screenChildren={!config && <div className="screen-idle"><b>OH CINEMA</b><span>配对后开始放映</span></div>}
       >
@@ -212,8 +220,8 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
             ))}
           </div>
         ))}
-        {partnerOnline && now - arrivedAt < ARRIVE_MS && <div className="arrive-sparkles" style={point(EMPTY_SEAT.x, EMPTY_SEAT.y - 40)} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
-        {config && !partnerOnline && <p className="empty-seat" style={point(EMPTY_SEAT.x, EMPTY_SEAT.y)}>TA 的座位</p>}
+        {arriving && <div className="arrive-sparkles" style={point(EMPTY_SEAT[partnerSide].x, EMPTY_SEAT[partnerSide].y - 40)} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
+        {config && !partnerOnline && <p className="empty-seat" style={point(EMPTY_SEAT[partnerSide].x, EMPTY_SEAT[partnerSide].y)}>TA 的座位</p>}
 
         {config && (
           <div className="ticket-wrap" style={place(UI.ticket)}>

@@ -33,6 +33,8 @@ button, input { font: inherit; }
 /* 玩偶：说话时轻轻一跳；TA 上线时“刷新”到座位上 */
 .doll.talking { animation: doll-talk .7s var(--th-ease) 2; }
 @keyframes doll-talk { 0%, 100% { transform: translateY(0); } 40% { transform: translateY(calc(var(--u) * -6)) scale(1.015, .985); } }
+.seat-empty { z-index: 3; transition: opacity .9s var(--th-ease); }
+.seat-empty.is-taken { opacity: 0; }
 .doll-left.arriving { animation: doll-arrive .9s var(--th-ease) both; transform-origin: 50% 100%; }
 @keyframes doll-arrive { 0% { transform: translateY(calc(var(--u) * 30)) scale(.3); opacity: 0; } 60% { transform: translateY(calc(var(--u) * -6)) scale(1.04); opacity: 1; } 100% { transform: none; } }
 
