@@ -1,9 +1,8 @@
 // 注入到 B站页面（主世界）的放映厅桥：遥控 VideoTogether 建房 / 加入、收发聊天、统计在线人数，
 // 并负责“小银幕”模式（只显示视频，点击即放大）。主进程通过 executeJavaScript 调用 window.__ohTheater。
 //
-// 两边都能控制：VideoTogether 只认房主（创建者）的播放状态，成员每秒被拉回房主的进度。
-// 成员自己暂停 / 播放 / 拖进度 / 换视频时，桥把这个操作作为隐藏消息发给房主，房主那边代为执行，
-// 再由 VideoTogether 照常同步给两个人；等待期间暂缓把成员拉回去，画面不会闪回。
+// 两边都能控制：VideoTogether 只上传房主的播放状态、成员跟随。谁在自己的播放器上动手，
+// 谁就临时切成房主并通知另一边切成成员（见下面“遥控器”）。
 (() => {
   if (window.__ohTheater) return;
   const SEND_TXT_MSG = 30;
@@ -11,22 +10,15 @@
   const ROOM_DATA = 22;
   // 控制指令走聊天通道，前缀和牵手信号一样以不可见字符开头，不会显示成气泡
   const CTRL = "\u2063OH:CTRL:";
-  const HOLD_SYNC_MS = 8000;
   const SEEK_TOLERANCE = 3;
-  // 页面刚打开时 B站会自动播放、从观看历史的位置继续：这几秒里播放器的变化不算成员的操作
-  const SETTLE_MS = 6000;
-  const loadedAt = Date.now();
   const queue = [];
   const events = [];
   const sentIds = new Set();
   let config = null;
   let lastJoinAt = 0;
   let small = false;
-  let lastRoom = null;        // 成员最近收到的房间状态（VideoTogether 正要同步成的样子）
-  let holdSyncUntil = 0;      // 成员刚操作过：这之前不把成员拉回房主进度
-  let pendingCtrl = null;     // 成员发出、房主还没执行到的操作
-  let lastSent = null;
-  const controls = [];        // 对方的操作（房主这边：执行了的成员操作；成员这边：房主的操作），给场景显示提示
+  let lastRoom = null;        // 最近的房间状态（用来提示“TA 暂停了”等）
+  const controls = [];        // 给场景的提示：自己接过遥控器（by: me），或对方的操作
 
   const extension = () => window.videoTogetherExtension || null;
 
@@ -114,94 +106,98 @@
     window.postMessage({ source: "VideoTogether", type: SEND_TXT_MSG, data: { currentSendingMsgId: id, value: text } }, "*");
   };
 
-  // ---- 成员：把自己的操作发给房主 ----
-  const sendCtrl = (action) => {
+  // ---- 遥控器：谁操作播放器，谁临时当房主 ----
+  // VideoTogether 里只有房主的播放状态会上传、对方跟随（房主控制观众就是这样做到的）。
+  // 所以谁在自己的播放器上动手（拖进度、暂停、播放、换视频），谁就把自己切成房主、立刻上传，
+  // 并通知另一边切成成员跟随——两边用的都是房主那条同步路径。
+  // “是不是人在操作”看操作前有没有真实的鼠标 / 键盘动作：VideoTogether 自己同步、B站自动播放都没有。
+  const GESTURE_MS = 1500;
+  const PAGE_GESTURE_MS = 10000;
+  let gestureAt = 0;
+  let lastTakeoverAt = 0;
+  const rememberGesture = (event) => {
+    if (event && event.isTrusted === false) return;
+    gestureAt = Date.now();
+    // 换视频会整页跳转：把时间记在本标签页里，新页面打开后还能认出是自己点过去的
+    try { const store = storage(); if (store) store.setItem("oh-theater-gesture", String(gestureAt)); } catch {}
+  };
+  for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, rememberGesture, true);
+
+  const ACTIONS = { seeking: "seek", play: "play", pause: "pause", ratechange: "rate" };
+
+  let lastAnnounceAt = 0;
+  // 告诉另一边“遥控器在我这”：对方如果也是房主（例如页面重开后两边都回到了原来的身份）就让出来
+  const announce = (ext, now) => {
+    lastAnnounceAt = now;
+    let link = typeof location !== "undefined" ? location.href : "";
+    try { if (typeof ext.linkWithoutState === "function") link = String(ext.linkWithoutState(link)); } catch {}
+    sendRaw(CTRL + JSON.stringify({ a: "takeover", at: now, u: link }));
+  };
+
+  const takeOver = (action) => {
+    const ext = extension();
+    if (!ext || !inRole("Member") || typeof ext.setRole !== "function") return;
     const now = Date.now();
-    // 同一个操作在短时间里重复触发（例如拖动时连着几次 seeked）只发一次
-    if (lastSent && lastSent.a === action.a && now - lastSent.at < 3000 && Math.abs((lastSent.t || 0) - (action.t || 0)) < 0.5 && lastSent.u === action.u) return;
-    lastSent = { ...action, at: now };
-    pendingCtrl = action;
-    holdSyncUntil = now + HOLD_SYNC_MS;
-    sendRaw(CTRL + JSON.stringify(action));
-    // 给自己这边一个提示：“已同步给 TA”
-    controls.push({ a: action.a, t: Number(action.t) || 0, by: "me" });
+    lastTakeoverAt = now;
+    ext.setRole(ext.RoleEnum.Master);
+    announce(ext, now);
+    kick(ext); // 立刻把自己的播放状态传上去，不等 2 秒周期
+    controls.push({ a: action, by: "me" });
     if (controls.length > 20) controls.shift();
   };
 
-  // 房间状态已经变成成员要的样子：马上恢复同步
-  const settlePending = (ext, room) => {
-    if (!pendingCtrl) return;
-    const action = pendingCtrl;
-    const t = roomTime(ext, room);
-    const done = action.a === "pause" ? room.paused === true && Math.abs(t - action.t) < 2
-      : action.a === "play" ? room.paused === false
-      : action.a === "seek" ? Math.abs(t - action.t) < 2
-      : action.a === "url" ? pageKey(room.url) === pageKey(action.u)
-      : true;
-    if (done) { pendingCtrl = null; holdSyncUntil = 0; }
+  // 对方接过了遥控器：自己切成成员跟随
+  const yieldTo = (action) => {
+    const ext = extension();
+    if (!ext || !inRole("Master") || typeof ext.setRole !== "function") return;
+    // 两边几乎同时动手：后动手的为准，这边更晚就继续当房主，对方收到这边的消息会让出来
+    if (lastTakeoverAt && (Number(action.at) || 0) < lastTakeoverAt) return;
+    // 两边本来就在同一个视频：记下对方的地址，跟随时不用重新打开页面；对方换了视频则会被带过去
+    if (typeof action.u === "string" && typeof location !== "undefined" && pageKey(action.u) === pageKey(location.href)) ext.url = action.u;
+    ext.setRole(ext.RoleEnum.Member);
+    // 让出遥控器后，接下来播放器的变化都是在跟随对方，不能再当成自己的操作（否则会立刻抢回来）
+    gestureAt = 0;
+    try { const store = storage(); if (store) store.setItem("oh-theater-gesture", "0"); } catch {}
+    kick(ext);
   };
 
   // 媒体事件不冒泡，但捕获阶段能在 document 上收到
   const onMedia = (event) => {
     const video = event.target;
-    if (!video || (video.tagName !== "VIDEO" && video.tagName !== "BWP-VIDEO") || !lastRoom || !inRole("Member")) return;
-    // 只认视频页上的主播放器：首页、列表里的预览小视频自己播放 / 暂停不算
-    if (typeof location === "undefined" || !isVideoPage(location.href) || video !== videoOf(extension())) return;
-    if (Date.now() - loadedAt < SETTLE_MS) return;
-    const room = lastRoom;
-    const ext = extension();
-    const t = Number(video.currentTime) || 0;
-    // 拖进度：一开始跳转（seeking）就判断，不等缓冲完；VideoTogether 自己把成员拉回时跳到的正是房间时间，不会误判。
-    // 拖完后成员要缓冲，房间会进入“等待加载”，所以拖进度不受下面那条限制。
-    if (event.type === "seeking" || event.type === "seeked") {
-      if (Math.abs(t - roomTime(ext, room)) > SEEK_TOLERANCE) sendCtrl({ a: "seek", t, paused: Boolean(video.paused) });
-      return;
+    if (!video || (video.tagName !== "VIDEO" && video.tagName !== "BWP-VIDEO")) return;
+    if (Date.now() - gestureAt > GESTURE_MS) return; // 不是人点出来的
+    if (typeof location === "undefined" || !isVideoPage(location.href)) return;
+    // 页面上的预览小视频不算（正片以外的短视频）
+    const main = videoOf(extension());
+    if (main && video !== main && (Number(video.duration) || 0) < 60) return;
+    if (inRole("Member")) takeOver(ACTIONS[event.type] || "seek");
+    else if (inRole("Master")) {
+      // 本来就是房主：马上上传，不等 2 秒；拖进度会连续触发，通知对方每秒最多一次
+      const ext = extension();
+      const now = Date.now();
+      lastTakeoverAt = now;
+      if (now - lastAnnounceAt > 1000) announce(ext, now);
+      kick(ext);
     }
-    // 房主在等对方缓冲时，VideoTogether 会让成员暂停 / 播放，那不是成员自己的操作
-    if (room.waitForLoadding && !room.paused) return;
-    if (event.type === "pause" && !video.ended && room.paused === false) sendCtrl({ a: "pause", t });
-    else if (event.type === "play" && room.paused === true) sendCtrl({ a: "play", t });
   };
-  if (document.addEventListener) for (const type of ["play", "pause", "seeking", "seeked"]) document.addEventListener(type, onMedia, true);
+  if (document.addEventListener) for (const type of Object.keys(ACTIONS)) document.addEventListener(type, onMedia, true);
 
-  // 成员自己换了视频 / 分 P（不是被 VideoTogether 带过去的）：请房主也换过去。
-  // 只在成员这边的页面发生变化时判断；房主换视频、成员被带走时，新页面就是房间里的页面，不会再发回去。
+  // 自己换了视频 / 分 P（B站页内切换或整页跳转）：接过房主，VideoTogether 会把对方带过来。
+  // 被 VideoTogether 带过来的跳转之前没有自己的点击，不算。
   const checkPage = () => {
-    if (!lastRoom || !inRole("Member") || typeof location === "undefined") return;
-    const here = location.href;
-    const key = pageKey(here);
+    if (typeof location === "undefined" || !config || !(inRole("Member") || inRole("Master"))) return;
+    const key = pageKey(location.href);
     const store = storage();
     let previous = null;
-    try { previous = store ? store.getItem("oh-theater-page") : null; } catch {}
-    try { if (store) store.setItem("oh-theater-page", key); } catch {}
-    if (!previous || previous === key) return;
-    if (!isVideoPage(here) || key === pageKey(lastRoom.url)) return;
-    sendCtrl({ a: "url", u: cleanVideoUrl(here) });
-  };
-
-  // ---- 房主：执行对方的操作 ----
-  const applyCtrl = (action) => {
-    if (!action || typeof action !== "object" || !inRole("Master")) return;
-    const ext = extension();
-    if (action.a === "url") {
-      if (typeof action.u !== "string" || !isVideoPage(action.u)) return;
-      controls.push({ a: "url" });
-      if (pageKey(action.u) !== pageKey(location.href)) location.href = cleanVideoUrl(action.u);
-      return;
-    }
-    if (!["pause", "play", "seek"].includes(action.a)) return;
-    const video = videoOf(ext);
-    if (!video) return;
-    const t = Number(action.t);
-    if (Number.isFinite(t) && t >= 0 && (action.a === "seek" || Math.abs((Number(video.currentTime) || 0) - t) > 1.5)) video.currentTime = t;
-    const wantPaused = action.a === "pause" ? true : action.a === "play" ? false : Boolean(action.paused);
-    if (wantPaused && !video.paused) video.pause();
-    if (!wantPaused && video.paused) {
-      const playing = video.play();
-      if (playing && typeof playing.catch === "function") playing.catch(() => {});
-    }
-    controls.push({ a: action.a, t: Number.isFinite(t) ? t : 0 });
-    if (controls.length > 20) controls.shift();
+    let gesture = gestureAt;
+    try {
+      previous = store ? store.getItem("oh-theater-page") : null;
+      gesture = Math.max(gesture, Number(store ? store.getItem("oh-theater-gesture") : 0) || 0);
+      if (store) store.setItem("oh-theater-page", key);
+    } catch {}
+    if (!previous || previous === key || !isVideoPage(location.href)) return;
+    if (Date.now() - gesture > PAGE_GESTURE_MS) return;
+    if (inRole("Member")) takeOver("url");
   };
 
   window.addEventListener("message", (event) => {
@@ -211,15 +207,14 @@
       const room = data.data;
       if (room && typeof room === "object") {
         const ext = extension();
-        // 房间状态变了、又不是自己刚发起的操作：那是对方（房主）操作的，给场景一个提示
-        if (lastRoom && !pendingCtrl && inRole("Member") && !(room.waitForLoadding && !room.paused)) {
+        // 自己是成员时房间状态变了：那是对方（当前房主）操作的，给场景一个提示
+        if (lastRoom && inRole("Member") && !(room.waitForLoadding && !room.paused)) {
           if (pageKey(room.url) !== pageKey(lastRoom.url)) controls.push({ a: "url" });
           else if (room.paused !== lastRoom.paused) controls.push({ a: room.paused ? "pause" : "play", t: roomTime(ext, room) });
           else if (Math.abs(roomTime(ext, room) - roomTime(ext, lastRoom)) > SEEK_TOLERANCE) controls.push({ a: "seek", t: roomTime(ext, room) });
           if (controls.length > 20) controls.shift();
         }
         lastRoom = room;
-        settlePending(ext, room);
       }
       return;
     }
@@ -231,7 +226,7 @@
     if (msg.startsWith(CTRL)) {
       let action = null;
       try { action = JSON.parse(msg.slice(CTRL.length)); } catch {}
-      applyCtrl(action);
+      if (action && action.a === "takeover") yieldTo(action);
       return;
     }
     queue.push({ msg, at: Date.now() });
@@ -244,15 +239,6 @@
     if (!ext.__ohSilenced) {
       ext.gotTextMsg = async () => {};
       ext.__ohSilenced = true;
-    }
-    // 成员刚操作、房主还没执行到时，先不把成员拉回房主的进度
-    if (!ext.__ohSyncWrapped && typeof ext.SyncMemberVideo === "function") {
-      const original = ext.SyncMemberVideo;
-      ext.SyncMemberVideo = function (data, video) {
-        if (Date.now() < holdSyncUntil) return Promise.resolve();
-        return original.call(this, data, video);
-      };
-      ext.__ohSyncWrapped = true;
     }
   };
 

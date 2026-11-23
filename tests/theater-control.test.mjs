@@ -4,8 +4,13 @@ import test from "node:test";
 import vm from "node:vm";
 import { roomCredentials } from "../app/theater/protocol.ts";
 
+// 两边都能控制：谁在自己的播放器上动手，谁就临时当 VideoTogether 的房主（上传状态），另一边切成成员跟随。
+// 这里用一个假的 VideoTogether 服务器把两边接起来，按真实的规则跑：只有房主上传房间状态，成员每次同步跟上。
+
 const bridgeSource = await readFile(new URL("../electron/theater-bridge.js", import.meta.url), "utf8");
 const CTRL = "⁣OH:CTRL:";
+const MASTER = 2;
+const MEMBER = 3;
 
 let clockMs = 1_000_000;
 const now = () => clockMs;
@@ -13,8 +18,8 @@ const FakeDate = class extends Date {
   static now() { return clockMs; }
 };
 
-/** 一边的 B站页面：假视频、假 VideoTogether、桥。role: "master" | "member"。 */
-function side(role, href) {
+/** 一边的 B站页面：真实结构的假播放器 + 按真实规则工作的假 VideoTogether + 桥。 */
+function side(name, role, href, server) {
   const listeners = new Map();
   const docListeners = new Map();
   const sent = [];
@@ -31,11 +36,11 @@ function side(role, href) {
   const dispatch = (type, target) => { for (const callback of docListeners.get(type) ?? []) callback({ type, target }); };
   const video = {
     tagName: "VIDEO",
-    VideoTogetherVideoId: `vt-${role}`,
+    VideoTogetherVideoId: `vt-${name}`,
     duration: 1800,
     ended: false,
-    paused: true,
-    _time: 0,
+    paused: false,
+    _time: 100,
     get currentTime() { return this._time; },
     // 和浏览器一样：设置 currentTime 先触发 seeking，缓冲好再触发 seeked
     set currentTime(value) { this._time = value; dispatch("seeking", this); dispatch("seeked", this); },
@@ -44,17 +49,31 @@ function side(role, href) {
   };
   const credentials = roomCredentials("K7Q2MX");
   const extension = {
-    RoleEnum: { Null: 1, Master: 2, Member: 3 },
-    role: role === "master" ? 2 : 3,
+    RoleEnum: { Null: 1, Master: MASTER, Member: MEMBER },
+    role: role === "master" ? MASTER : MEMBER,
     roomName: credentials.name,
     ctxMemberCount: 2,
+    url: href,
     gotTextMsg() {},
     CreateRoom() {}, JoinRoom() {}, exitRoom() {},
+    setRole(next) { this.role = next; },
+    linkWithoutState: (link) => String(link),
     // 和真实的 VideoTogether 一样：返回的是视频记录（id、时长），不是元素本身
     GetVideoDom: () => ({ id: video.VideoTogetherVideoId, duration: video.duration, priority: 0 }),
     CalculateRealCurrent: (room) => room.currentTime + (now() - room.lastUpdateClientTime) / 1000,
-    // 和 VideoTogether 一样：把成员的视频改成房间的样子
-    async SyncMemberVideo(data, videoDom) {
+    // VideoTogether 的定时任务：房主上传自己的状态；成员拉取房间、换页或同步播放器
+    ScheduledTask() {
+      if (this.role === MASTER) {
+        server.room = { url: this.linkWithoutState(location.href), paused: video.paused, currentTime: video.currentTime, lastUpdateClientTime: now(), playbackRate: 1, waitForLoadding: false };
+        window.postMessage({ source: "VideoTogether", type: 22, data: server.room });
+      } else if (this.role === MEMBER && server.room) {
+        const room = server.room;
+        window.postMessage({ source: "VideoTogether", type: 22, data: room });
+        if (room.url !== this.url) { location.href = room.url; this.url = room.url; server.jumps.push(name); return; }
+        this.SyncMemberVideo({ room }, video);
+      }
+    },
+    SyncMemberVideo(data, videoDom) {
       const room = data.room;
       const target = room.paused ? room.currentTime : this.CalculateRealCurrent(room);
       if (Math.abs(videoDom.currentTime - target) > 1) videoDom.currentTime = target;
@@ -71,156 +90,141 @@ function side(role, href) {
     addEventListener(type, callback) { docListeners.set(type, [...(docListeners.get(type) ?? []), callback]); },
   };
   window.document = document;
-  const context = vm.createContext({ window, document, location, console, setInterval: () => 0, Date: FakeDate, Math, Set, Number, Boolean, JSON, URL, Promise, String, Array });
+  const context = vm.createContext({ window, document, location, console, setInterval: () => 0, Date: FakeDate, Math, Set, Number, Boolean, JSON, URL, Promise, String, Array, Object });
   vm.runInContext(bridgeSource, context);
   window.videoTogetherExtension = extension;
   const api = window.__ohTheater;
   api.configure({ ...credentials, role });
   const drain = () => JSON.parse(JSON.stringify(api.drain()));
-  return { api, window, video, extension, location, sent, drain, store, dispatch };
-}
-
-/** 假的 VideoTogether 服务器：转发聊天、把房间状态推给成员并让成员同步。 */
-function link(master, member) {
-  const relay = () => {
-    for (const msg of member.sent.splice(0)) master.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "from-member", msg } });
-    for (const msg of master.sent.splice(0)) member.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "from-master", msg } });
+  /** 人在这一边点了一下 / 按了键，然后做某件事 */
+  const user = (action) => {
+    for (const callback of listeners.get("pointerdown") ?? []) callback({ type: "pointerdown", isTrusted: true, preventDefault() {}, stopImmediatePropagation() {} });
+    action();
   };
-  const roomFromMaster = () => ({ url: master.location.href, paused: master.video.paused, currentTime: master.video.currentTime, lastUpdateClientTime: now(), playbackRate: 1, waitForLoadding: false });
-  // 成员这边一次同步：先收到房间状态，再被拉到房间的样子
-  const tick = async () => {
-    const room = roomFromMaster();
-    member.window.postMessage({ source: "VideoTogether", type: 22, data: room });
-    await member.extension.SyncMemberVideo({ room }, member.video);
-  };
-  return { relay, tick };
+  return { name, api, window, video, extension, location, sent, drain, user, dispatch, store };
 }
 
 async function pair() {
   clockMs = 1_000_000;
-  const master = side("master", "https://www.bilibili.com/video/BV1aa411?p=1&spm_id_from=x");
-  const member = side("member", "https://www.bilibili.com/video/BV1aa411");
-  master.drain(); member.drain(); // 让桥接上 VideoTogether（静音、包装同步）
-  // 页面刚打开的几秒（B站自动播放、从历史位置继续）不算成员操作：先确认这一点，再过了这段时间开始测
-  member.video.pause();
-  assert.deepEqual(member.sent, [], "刚打开页面时的暂停 / 播放不当成成员操作");
-  member.video.paused = false;
-  clockMs += 7000;
-  master.video._time = 100; master.video.paused = false;
-  const net = link(master, member);
-  await net.tick();
-  assert.equal(member.video.paused, false);
-  assert.ok(Math.abs(member.video.currentTime - 100) < 0.01);
-  assert.deepEqual(member.sent, [], "VideoTogether 自己同步引起的播放 / 跳转不算成员的操作");
-  return { master, member, net };
+  const server = { room: null, jumps: [] };
+  const url = "https://www.bilibili.com/video/BV1aa411?spm_id_from=x";
+  const a = side("A", "master", url, server); // 创建者
+  const b = side("B", "member", url, server); // 观众
+  a.drain(); b.drain();
+  const relay = () => {
+    for (const [from, to] of [[a, b], [b, a]]) for (const msg of from.sent.splice(0)) to.window.postMessage({ source: "VideoTogether", type: 31, data: { id: `from-${from.name}`, msg } });
+  };
+  // 两边各跑一次 VideoTogether 定时任务（房主先上传，成员再跟上）
+  const tick = () => {
+    clockMs += 2000;
+    for (const one of [a, b].sort((x) => (x.extension.role === MASTER ? -1 : 1))) one.extension.ScheduledTask();
+  };
+  tick();
+  return { a, b, server, relay, tick };
 }
 
-test("the viewer pauses on their own player: the host follows and the viewer is not pulled back", async () => {
-  const { master, member, net } = await pair();
-  clockMs += 3000;
-  member.video.pause();
-  assert.equal(member.sent.length, 1);
-  assert.ok(member.sent[0].startsWith(CTRL));
-  // 房主那边还没执行到：成员这边不被拉回播放
-  await member.extension.SyncMemberVideo({ room: { url: master.location.href, paused: false, currentTime: 100, lastUpdateClientTime: now() - 3000, playbackRate: 1 } }, member.video);
-  assert.equal(member.video.paused, true, "等待期间不闪回");
-  net.relay();
-  assert.equal(master.video.paused, true, "房主那边跟着暂停");
-  assert.deepEqual(master.drain().controls.map((item) => item.a), ["pause"]);
-  assert.deepEqual(master.drain().messages, [], "控制指令不会显示成聊天气泡");
-  await net.tick();
-  assert.equal(member.video.paused, true);
-  assert.deepEqual(member.drain().controls.filter((item) => item.by !== "me"), [], "自己的操作不提示“TA 暂停了”");
-  assert.deepEqual(member.sent, []);
+const isMaster = (one) => one.extension.role === MASTER;
+
+test("the viewer drags the progress bar: they take the remote, the creator follows and nobody is pulled back", async () => {
+  const { a, b, relay, tick } = await pair();
+  assert.ok(isMaster(a) && !isMaster(b));
+  b.user(() => { b.video.currentTime = 754; });
+  assert.ok(isMaster(b), "观众动手后自己当房主，马上上传");
+  assert.ok(b.sent.some((msg) => msg.startsWith(CTRL)), "通知另一边让出房主");
+  relay();
+  assert.ok(!isMaster(a), "创建者那边切成成员");
+  tick(); tick();
+  assert.ok(Math.abs(a.video.currentTime - b.video.currentTime) < 0.01, "创建者跟到观众拖到的位置");
+  assert.ok(b.video.currentTime > 750, "观众没有被拉回去");
+  assert.deepEqual(b.drain().controls.map((item) => item.by), ["me"], "观众这边提示“你在控制播放”");
 });
 
-test("the viewer resumes and seeks; the host's own actions show up on the viewer's side", async () => {
-  const { master, member, net } = await pair();
-  member.video.pause();
-  net.relay();
-  await net.tick();
-  member.drain(); master.drain();
-  // 继续播放
-  member.video.play();
-  net.relay();
-  assert.equal(master.video.paused, false);
-  await net.tick();
-  // 拖进度到 12:34
-  member.video.currentTime = 754;
-  net.relay();
-  assert.ok(Math.abs(master.video.currentTime - 754) < 0.01, "房主那边跳到同一个时间");
-  assert.equal(master.video.paused, false);
-  assert.deepEqual(master.drain().controls.map((item) => item.a), ["play", "seek"]);
-  await net.tick();
-  assert.deepEqual(member.drain().controls.filter((item) => item.by !== "me"), []);
-  // 房主自己暂停：成员被同步，并提示“TA 暂停了”
-  clockMs += 1000;
-  master.video.pause();
-  await net.tick();
-  assert.equal(member.video.paused, true);
-  assert.deepEqual(member.drain().controls.filter((item) => item.by !== "me").map((item) => item.a), ["pause"]);
-  assert.deepEqual(member.sent, [], "被房主同步的暂停不会再发回去");
+test("pause and play from either side, back and forth", async () => {
+  const { a, b, relay, tick } = await pair();
+  b.user(() => b.video.pause());
+  relay(); tick();
+  assert.equal(a.video.paused, true, "观众暂停，创建者也暂停");
+  a.drain();
+  // 创建者再点播放：遥控器回到创建者手里
+  a.user(() => a.video.play());
+  relay(); tick();
+  assert.ok(isMaster(a) && !isMaster(b));
+  assert.equal(b.video.paused, false, "观众跟着继续播放");
+  assert.deepEqual(b.drain().controls.filter((item) => item.by !== "me").map((item) => item.a), ["play"], "观众这边提示“TA 继续播放”");
 });
 
-test("dragging the progress bar still counts while the room waits for the viewer to buffer", async () => {
-  const { master, member, net } = await pair();
-  clockMs += 1000;
-  // 成员拖进度后要缓冲，VideoTogether 会把房间标成“等待加载”
-  const room = { url: master.location.href, paused: false, currentTime: master.video.currentTime, lastUpdateClientTime: now(), playbackRate: 1, waitForLoadding: true };
-  member.window.postMessage({ source: "VideoTogether", type: 22, data: room });
-  member.video.currentTime = 1200;
-  assert.equal(member.sent.length, 1, "一开始跳转就发出，只发一次");
-  // 自己这边提示“已同步给 TA”
-  const mine = member.drain().controls.filter((item) => item.by === "me");
-  assert.deepEqual(mine.map((item) => item.a), ["seek"]);
-  net.relay();
-  assert.ok(Math.abs(master.video.currentTime - 1200) < 0.01);
+test("VideoTogether's own syncing and Bilibili autoplay never take the remote", async () => {
+  const { a, b, relay, tick } = await pair();
+  // 创建者拖进度：观众被 VideoTogether 同步过去（没有观众自己的点击）
+  a.user(() => { a.video.currentTime = 1200; });
+  tick();
+  assert.ok(Math.abs(b.video.currentTime - 1200) < 3);
+  // B站自己暂停 / 播放（没有点击）
+  b.video.pause(); b.video.play();
+  assert.deepEqual(b.sent, []);
+  assert.ok(isMaster(a) && !isMaster(b));
+  relay();
+  // 点击过去很久以后的变化也不算
+  b.user(() => {});
+  clockMs += 5000;
+  b.video.pause();
+  assert.deepEqual(b.sent, []);
+  // 推荐区的预览小视频不算
+  b.user(() => b.dispatch("pause", { tagName: "VIDEO", VideoTogetherVideoId: "preview", duration: 15, currentTime: 2 }));
+  assert.deepEqual(b.sent, []);
 });
 
-test("the viewer opens another video: the host switches too, without bouncing back", async () => {
-  const { master, member, net } = await pair();
-  // 成员页面上记着上一个页面（同一个标签页里跳转后保留）
-  member.drain();
-  member.location.href = "https://www.bilibili.com/video/BV1bb422/?p=2&vd_source=abc";
-  member.drain();
-  assert.equal(member.sent.length, 1);
-  net.relay();
-  assert.equal(master.location.href, "https://www.bilibili.com/video/BV1bb422/?p=2", "房主换到同一个视频（去掉来源参数）");
-  assert.deepEqual(master.drain().controls.map((item) => item.a), ["url"]);
-  // 房主换视频、成员还没被带过去：成员不会把旧视频发回去
-  master.location.href = "https://www.bilibili.com/video/BV1cc433";
-  member.location.href = "https://www.bilibili.com/video/BV1bb422/?p=2";
-  await net.tick();
-  member.drain();
-  member.location.href = "https://www.bilibili.com/video/BV1cc433";
-  member.drain();
-  assert.deepEqual(member.sent, [], "被房主带过去的跳转不算成员换视频");
+test("if both grab the remote at once, the later one wins and the other follows", async () => {
+  const { a, b, relay, tick } = await pair();
+  b.user(() => { b.video.currentTime = 300; });
+  clockMs += 200;
+  // 观众的消息还没到，创建者也拖了一下（创建者本来就是房主，不需要接管）
+  a.user(() => { a.video.currentTime = 900; });
+  relay();
+  // 创建者更晚动手：创建者继续当房主，观众让出来（让出后的同步不会被当成观众又动了手）
+  assert.ok(isMaster(a) && !isMaster(b));
+  tick(); tick();
+  assert.ok(Math.abs(a.video.currentTime - b.video.currentTime) < 0.01, "两边最终一致");
+});
+
+test("the viewer opens another video: the creator is taken there; same video means no reload", async () => {
+  const { a, b, server, relay, tick } = await pair();
+  b.drain();
+  // 观众在 B站里点了另一个视频（页内切换）
+  b.user(() => { b.location.href = "https://www.bilibili.com/video/BV1bb422/?p=2"; });
+  b.drain();
+  assert.ok(isMaster(b));
+  relay();
+  assert.ok(!isMaster(a));
+  tick();
+  assert.equal(a.location.href, "https://www.bilibili.com/video/BV1bb422/?p=2", "创建者被带到同一个视频");
+  assert.deepEqual(server.jumps, ["A"]);
+  // 同一个视频里接管遥控器：跟随的一方不用重新打开页面
+  a.user(() => a.video.pause());
+  relay(); tick(); tick();
+  assert.deepEqual(server.jumps, ["A"], "同一个视频里互相接管不会刷新页面");
   // 首页、搜索页不算换视频
-  member.location.href = "https://search.bilibili.com/all?keyword=cat";
-  member.drain();
-  assert.deepEqual(member.sent, []);
+  b.user(() => { b.location.href = "https://search.bilibili.com/all?keyword=cat"; });
+  b.drain();
+  assert.ok(!isMaster(b));
 });
 
-test("preview videos on the home page are not the viewer's actions", async () => {
-  const { member } = await pair();
-  member.location.href = "https://www.bilibili.com/";
-  const preview = { tagName: "VIDEO", ended: false, paused: true, currentTime: 3 };
-  // 首页上的预览小视频暂停 / 跳转：不发给房主
-  for (const type of ["pause", "seeked"]) member.dispatch(type, preview);
-  member.dispatch("pause", member.video);
-  assert.deepEqual(member.sent, []);
+test("if both ended up as host (page reopened), the next action sorts it out", async () => {
+  const { a, b, relay, tick } = await pair();
+  b.extension.setRole(MASTER);
+  clockMs += 1500;
+  a.user(() => { a.video.currentTime = 600; });
+  relay();
+  assert.ok(isMaster(a) && !isMaster(b), "动手的一方通知对方让出来");
+  tick(); tick();
+  assert.ok(Math.abs(b.video.currentTime - a.video.currentTime) < 0.01);
 });
 
-test("only the host executes partner commands, and only Bilibili video pages", async () => {
-  const { master, member } = await pair();
-  // 成员收到控制指令不执行（只有房主上传房间状态）
-  member.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "x", msg: `${CTRL}${JSON.stringify({ a: "pause", t: 1 })}` } });
-  assert.equal(member.video.paused, false);
-  // 房主不跳到 B站以外的地址
-  master.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "y", msg: `${CTRL}${JSON.stringify({ a: "url", u: "https://evil.example/video/x" })}` } });
-  master.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "z", msg: `${CTRL}not json` } });
-  assert.equal(master.location.href, "https://www.bilibili.com/video/BV1aa411?p=1&spm_id_from=x");
-  assert.deepEqual(master.drain().messages, []);
-  // 场景的聊天发送不能伪造控制指令
-  assert.equal(member.api.send(`${CTRL}{"a":"pause"}`), false);
+test("only takeover messages are acted on, and the chat box cannot forge them", async () => {
+  const { a, b } = await pair();
+  a.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "x", msg: `${CTRL}not json` } });
+  a.window.postMessage({ source: "VideoTogether", type: 31, data: { id: "y", msg: `${CTRL}${JSON.stringify({ a: "pause" })}` } });
+  assert.ok(isMaster(a));
+  assert.deepEqual(a.drain().messages, [], "控制消息不会显示成聊天气泡");
+  assert.equal(b.api.send(`${CTRL}{"a":"takeover"}`), false);
 });

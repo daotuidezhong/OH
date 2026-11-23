@@ -8,7 +8,7 @@ import {
 import { ReferenceStage } from "./ReferenceStage";
 import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
-type TheaterControl = { a: "pause" | "play" | "seek" | "url"; t: number; by?: "me" | "partner" };
+type TheaterControl = { a: "pause" | "play" | "seek" | "url" | "rate"; t: number; by?: "me" | "partner" };
 type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; controls?: TheaterControl[]; vtError?: string; ambient?: number[] | null };
 
 const clock = (seconds: number) => {
@@ -20,13 +20,9 @@ const clock = (seconds: number) => {
 };
 /** 对方在自己那边操作了播放器，这边已经跟着同步：给一句提示 */
 export function controlNotice(control: TheaterControl): string {
-  // 自己在播放器上的操作：告诉自己已经同步给 TA
-  if (control.by === "me") {
-    if (control.a === "pause") return "已同步给 TA：暂停";
-    if (control.a === "play") return "已同步给 TA：继续播放";
-    if (control.a === "seek") return `已同步给 TA：跳到 ${clock(control.t)}`;
-    return "已同步给 TA：换视频";
-  }
+  // 自己在播放器上动手：这边接过了遥控器，TA 会跟着
+  if (control.by === "me") return "你在控制播放，TA 会跟着你";
+  if (control.a === "rate") return "TA 调了倍速";
   if (control.a === "pause") return "TA 暂停了";
   if (control.a === "play") return "TA 继续播放";
   if (control.a === "seek") return `TA 跳到了 ${clock(control.t)}`;
@@ -296,6 +292,8 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
           <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
           <span className={`enlarged-status ${partnerOnline ? "online" : ""}`}><i />{seatStatus}</span>
           {latestPartner && now - latestPartner.at < BUBBLE_MS && <span className="enlarged-message">TA：{latestPartner.text}</span>}
+          {/* 放大时 B站画面在最上层，提示放在顶栏里 */}
+          {notice && <span className="enlarged-notice" role="status">{notice}</span>}
         </div>
       )}
 

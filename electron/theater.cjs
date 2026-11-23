@@ -151,7 +151,7 @@ async function poll(context) {
       messages: (Array.isArray(next.messages) ? next.messages : []).filter((item) => item && typeof item.msg === "string").map((item) => ({ msg: item.msg.slice(0, 400) })),
       // 对方在自己那边的操作（暂停 / 播放 / 拖进度 / 换视频），这边已经跟着执行，场景里给个提示
       controls: (Array.isArray(next.controls) ? next.controls : [])
-        .filter((item) => item && ["pause", "play", "seek", "url"].includes(item.a))
+        .filter((item) => item && ["pause", "play", "seek", "url", "rate"].includes(item.a))
         .map((item) => ({ a: item.a, t: Number(item.t) || 0, by: item.by === "me" ? "me" : "partner" })),
       vtError: typeof next.vtError === "string" ? next.vtError.slice(0, 60) : "",
       canGoBack: context.view.webContents.navigationHistory.canGoBack(),

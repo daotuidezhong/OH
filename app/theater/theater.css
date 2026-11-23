@@ -130,6 +130,7 @@ button, input { font: inherit; }
 .enlarged-bar button { height: 32px; padding: 0 12px; border: 1px solid rgba(255, 220, 190, .25); border-radius: 9px; background: rgba(255, 240, 220, .08); color: var(--th-paper); cursor: pointer; }
 .enlarged-bar button:hover:not(:disabled) { background: rgba(255, 240, 220, .16); }
 .enlarged-bar button:disabled { opacity: .4; cursor: default; }
+.enlarged-notice { margin-left: auto; padding: 4px 12px; border-radius: 999px; background: rgba(255, 244, 236, .95); color: var(--th-ink); font-size: 13px; white-space: nowrap; animation: bubble-in .35s var(--th-ease); }
 .enlarged-back { background: var(--th-rose) !important; border-color: var(--th-rose-light) !important; }
 .enlarged-back kbd { margin-left: 6px; padding: 1px 5px; border-radius: 4px; background: rgba(0, 0, 0, .3); font-size: 11px; font-family: inherit; }
 .enlarged-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: rgba(255, 236, 214, .75); }
