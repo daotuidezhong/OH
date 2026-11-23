@@ -230,7 +230,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
           <div className="ticket-wrap" style={place(UI.ticket)}>
             <div className="ticket">
               <div className="ticket-main">
-                <span className="ticket-label"><b>放映厅</b><small>{init?.testMode ? `测试 ${init.label}` : "OH CINEMA"}{status.line ? ` · ${status.line}` : ""}</small></span>
+                <span className="ticket-label"><b>放映厅</b><small title={status.line ? `同步线路：${status.line}` : undefined}>{init?.testMode ? `测试 ${init.label}` : status.line || "OH CINEMA"}</small></span>
                 <button type="button" className="ticket-code" onClick={copyCode} title="复制放映厅码发给 TA">{copied ? "已复制" : formatRoomCode(config.code)}</button>
                 <span className={`ticket-status ${partnerOnline ? "online" : ""}`} title={seatStatus}><i /><span>{seatStatus}</span></span>
               </div>
