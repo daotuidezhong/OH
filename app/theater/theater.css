@@ -178,3 +178,37 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ffd27a; outline-
 .diag-panel dt { color: #9a6a5e; }
 .diag-panel dd { margin: 0; word-break: break-all; }
 .diag-panel p { margin: 10px 0 0; color: #9a6a5e; }
+
+/* 笔记本按钮：和放大银幕同组，纸张颜色 */
+.screen-controls .notebook-button { border-color: rgba(255, 228, 200, .55); background: rgba(255, 240, 225, .14); color: #ffe9d6; }
+
+/* 放映厅笔记本：横线纸、红色页边线 */
+.notebook-layer { position: fixed; inset: 0; z-index: 45; display: grid; place-items: center; padding: 24px; background: rgba(20, 6, 10, .62); animation: bubble-in .25s var(--th-ease); }
+.notebook { --line: 30px; position: relative; display: flex; flex-direction: column; width: min(980px, 100%); height: min(680px, 100%); border-radius: 6px 16px 16px 6px; background: #fbf3e6; color: #5a2a2e; box-shadow: 0 18px 50px rgba(0, 0, 0, .5), inset 10px 0 0 #b5395a, inset 14px 0 0 rgba(0, 0, 0, .12); overflow: hidden; }
+.notebook-head { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 2px 16px; padding: 18px 26px 12px 40px; border-bottom: 2px solid #e9c9b6; }
+.notebook-head h2 { margin: 0; font-size: 22px; letter-spacing: .08em; color: #8a2440; }
+.notebook-head p { grid-column: 1; margin: 0; color: #a07a70; font-size: 13px; }
+.notebook-close { grid-column: 2; grid-row: 1 / 3; align-self: center; padding: 6px 14px; border: 1px solid #d9b3a4; border-radius: 999px; background: #fff; color: #8a2440; font-size: 13px; cursor: pointer; }
+.notebook-close kbd { margin-left: 4px; font-size: 11px; color: #b08a80; }
+.notebook-empty { margin: auto; padding: 24px; max-width: 420px; color: #a07a70; text-align: center; line-height: 1.8; }
+.notebook-body { display: grid; grid-template-columns: 250px 1fr; flex: 1; min-height: 0; }
+.notebook-index { display: flex; flex-direction: column; gap: 6px; padding: 14px 12px 14px 30px; overflow: auto; border-right: 2px dashed #ecd3c3; background: rgba(250, 230, 214, .45); }
+.notebook-index button { display: grid; gap: 2px; padding: 9px 12px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.notebook-index button:hover { background: rgba(255, 255, 255, .6); }
+.notebook-index button.active { border-color: #e2b8a6; background: #fff; box-shadow: 0 2px 8px rgba(138, 36, 64, .12); }
+.notebook-index b { font-size: 14px; color: #8a2440; }
+.notebook-index span { font-size: 12px; }
+.notebook-index small { font-size: 11px; color: #a07a70; }
+.notebook-page { min-height: 0; overflow: auto; padding: 6px 26px 24px; background-image: linear-gradient(transparent calc(var(--line) - 1px), #ead7c8 calc(var(--line) - 1px)); background-size: 100% var(--line); background-attachment: local; }
+.notebook-page h3 { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 -26px; padding: 12px 26px 10px; background: #fbf3e6; border-bottom: 1px solid #ead7c8; font-size: 16px; color: #8a2440; }
+.notebook-page h3 span { font-size: 12px; font-weight: 400; color: #a07a70; }
+.notebook-lines { margin: 0; padding: 0; list-style: none; }
+.notebook-lines li { display: flex; align-items: baseline; gap: 10px; min-height: var(--line); line-height: var(--line); font-size: 14px; }
+.notebook-lines time { flex: none; width: 42px; color: #b99488; font-size: 12px; font-variant-numeric: tabular-nums; }
+.line-video { margin-top: 6px; }
+.line-video span { color: #a07a70; font-size: 12px; }
+.line-video button { padding: 0; border: 0; background: none; color: #2f6db5; font-size: 14px; font-weight: 700; text-align: left; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.line-hold span { color: #d0466a; }
+.line-chat b { flex: none; min-width: 2em; color: #3b6fb0; }
+.line-chat.partner b { color: #d0466a; }
+.line-chat span { line-height: 1.5; padding: 5px 0; word-break: break-word; }

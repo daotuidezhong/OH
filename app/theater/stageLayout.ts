@@ -31,7 +31,7 @@ export const ME_DOLL = box(829, 591, 188, 150);
 /** 界面元素在参考图里的位置（票根、右上按钮、聊天条），尺寸随舞台一起缩放。 */
 export const UI = {
   ticket: box(14, 77, 225, 87),
-  controls: box(1442, 77, 108, 190),
+  controls: box(1442, 77, 108, 244),
   chat: box(470, 865, 631, 62),
 } as const;
 

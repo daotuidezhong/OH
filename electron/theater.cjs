@@ -5,6 +5,7 @@ const { BrowserWindow, WebContentsView, ipcMain, session, shell } = require("ele
 const fs = require("node:fs");
 const path = require("node:path");
 const { isBilibiliUrl, toChromeUserAgent } = require("./theater-rules.cjs");
+const { openNotebook } = require("./theater-notebook.cjs");
 
 const THEATER_PARTITION = "persist:oh-theater";
 const THEATER_HOME = "https://www.bilibili.com/";
@@ -12,6 +13,16 @@ const SCENE_URL = "berry://game/theater.html";
 const VENDOR_DIR = path.join(__dirname, "vendor", "videotogether");
 const POLL_MS = 250;
 const ROOM_CODE = /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/;
+// 牵手信号（和 app/theater/protocol.ts 的 HOLD_TOKEN 一致）；其他以 \u2063 开头的是看不见的控制信号，不记进笔记本
+const HOLD_TOKEN = "\u2063OH:HAND";
+
+/** 把一条聊天通道里的消息记进笔记本：牵手、普通聊天；看不见的控制信号跳过 */
+function recordMessage(context, who, text) {
+  const room = context.config && context.config.code;
+  if (!context.notebook || !room || typeof text !== "string") return;
+  if (text === HOLD_TOKEN) context.notebook.hold(room, who);
+  else if (!text.startsWith("\u2063")) context.notebook.chat(room, who, text);
+}
 
 /** 放映厅窗口上下文，按场景页面的 webContents.id 索引。 */
 const contexts = new Map();
@@ -140,6 +151,15 @@ async function poll(context) {
   try {
     const state = await runInView(context, "window.__ohTheater ? window.__ohTheater.drain() : null");
     const next = state && typeof state === "object" ? state : { role: "loading", inRoom: false, members: 0, hasVideo: false, messages: [], events: [] };
+    // 笔记本：两人都在时记下一起看的时长和银幕上的视频；对方发来的聊天、牵手
+    const pollAt = Date.now();
+    const room = context.config && context.config.code;
+    if (context.notebook && room && next.inRoom && Number(next.members) >= 2) {
+      if (context.lastPollAt) context.notebook.together(room, pollAt - context.lastPollAt);
+      if (next.page && typeof next.page.url === "string" && isBilibiliUrl(next.page.url)) context.notebook.video(room, next.page.url, typeof next.page.title === "string" ? next.page.title : "");
+    }
+    context.lastPollAt = pollAt;
+    for (const item of Array.isArray(next.messages) ? next.messages : []) if (item && typeof item.msg === "string") recordMessage(context, "partner", item.msg.slice(0, 400));
     for (const event of Array.isArray(next.events) ? next.events : []) {
       if (event && event.type === "enlarge") sendToScene(context, "theater:enlarge", true);
     }
@@ -192,10 +212,17 @@ function setupIpc() {
       if (nextEnlarged) context.view.webContents.focus();
     }
   });
-  ipcMain.handle("theater:send", (event, text) => {
+  ipcMain.handle("theater:send", async (event, text) => {
     const context = contextFor(event);
     if (!context || typeof text !== "string" || !text || text.length > 400) return false;
-    return runInView(context, `window.__ohTheater ? window.__ohTheater.send(${JSON.stringify(text)}) : false`);
+    const sent = await runInView(context, `window.__ohTheater ? window.__ohTheater.send(${JSON.stringify(text)}) : false`);
+    if (sent) recordMessage(context, "me", text);
+    return sent;
+  });
+  // 笔记本：一起看过的每一次（新的在前）
+  ipcMain.handle("theater:notebook", (event) => {
+    const context = contextFor(event);
+    return context && context.notebook ? context.notebook.list() : [];
   });
   // 场景里的“离开放映厅”：关掉放映厅窗口，游戏主窗口不受影响
   ipcMain.on("theater:close", (event) => {
@@ -208,6 +235,8 @@ function setupIpc() {
     const { webContents } = context.view;
     if (action === "home") webContents.loadURL(THEATER_HOME);
     if (action === "back" && webContents.navigationHistory.canGoBack()) webContents.navigationHistory.goBack();
+    // 笔记本里点一个看过的视频：在银幕上重新打开（只允许 B站）
+    if (action && typeof action === "object" && typeof action.url === "string" && isBilibiliUrl(action.url)) webContents.loadURL(action.url);
   });
 }
 
@@ -215,7 +244,7 @@ function setupIpc() {
  * 打开放映厅。configFile 保存放映厅码；testConfig 用于 --theater-test（A/B 自动配对，不落盘）。
  * 每个会话分区最多一个放映厅窗口。
  */
-function openTheaterWindow({ icon, parent, configFile, partition = THEATER_PARTITION, label = "", bounds = {}, testConfig = null } = {}) {
+function openTheaterWindow({ icon, parent, configFile, notebookFile, partition = THEATER_PARTITION, label = "", bounds = {}, testConfig = null } = {}) {
   setupIpc();
   for (const context of contexts.values()) {
     if (context.partition === partition && !context.window.isDestroyed()) {
@@ -260,7 +289,12 @@ function openTheaterWindow({ icon, parent, configFile, partition = THEATER_PARTI
     sampledAt: 0,
     ambient: null,
     timer: null,
+    lastPollAt: 0,
+    notebook: null,
   };
+  // 笔记本和放映厅码放在同一个文件夹（测试模式 A / B 各一本）
+  const bookFile = notebookFile || (configFile ? path.join(path.dirname(configFile), "theater-notebook.json") : null);
+  if (bookFile) context.notebook = openNotebook(bookFile);
   contexts.set(window.webContents.id, context);
 
   const { webContents } = view;
@@ -296,6 +330,7 @@ function openTheaterWindow({ icon, parent, configFile, partition = THEATER_PARTI
   window.on("closed", () => {
     parent?.removeListener("closed", closeWithParent);
     clearInterval(context.timer);
+    context.notebook?.flush();
     for (const [id, item] of contexts) if (item === context) contexts.delete(id);
     if (!webContents.isDestroyed()) webContents.close();
   });
@@ -307,7 +342,7 @@ function openTheaterWindow({ icon, parent, configFile, partition = THEATER_PARTI
 }
 
 // 测试模式：一次打开左右并排的两个放映厅，A 建房、B 加入同一个随机放映厅码，各自独立登录，模拟两个人。
-function openTheaterTestPair({ icon, parent, workArea }) {
+function openTheaterTestPair({ icon, parent, workArea, notebookDir }) {
   const width = Math.floor(workArea.width / 2);
   const alphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
   const code = Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join("");
@@ -317,6 +352,7 @@ function openTheaterTestPair({ icon, parent, workArea }) {
     label,
     partition: `persist:oh-theater-test-${label.toLowerCase()}`,
     testConfig: { code, role: index === 0 ? "master" : "member" },
+    notebookFile: notebookDir ? path.join(notebookDir, `theater-notebook-${label.toLowerCase()}.json`) : undefined,
     bounds: { x: workArea.x + index * width, y: workArea.y, width, height: workArea.height, minWidth: 640 },
   }));
 }

@@ -248,7 +248,7 @@ if (singleInstance) app.whenReady().then(() => {
   ipcMain.on("theater:open", (event) => {
     if (event.sender !== window.webContents) return;
     const icon = app.isPackaged ? path.join(process.resourcesPath, "build/icon.png") : path.join(__dirname, "../build/icon.png");
-    if (theaterTestMode) openTheaterTestPair({ icon, parent: window, workArea: screen.getDisplayMatching(window.getBounds()).workArea });
+    if (theaterTestMode) openTheaterTestPair({ icon, parent: window, workArea: screen.getDisplayMatching(window.getBounds()).workArea, notebookDir: app.getPath("userData") });
     else openTheaterWindow({ icon, parent: window, configFile: path.join(app.getPath("userData"), "theater.json") });
   });
   autoUpdater.autoDownload = false;

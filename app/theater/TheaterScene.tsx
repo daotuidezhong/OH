@@ -5,6 +5,7 @@ import {
   cleanChatText, CHAT_MAX_LENGTH, formatRoomCode, generateRoomCode, HOLD_TOKEN,
   normalizeRoomCode, parseTheaterMessage, screenLight, type TheaterConfig,
 } from "./protocol";
+import { NotebookPanel, type NotebookSession } from "./NotebookPanel";
 import { ReferenceStage } from "./ReferenceStage";
 import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
@@ -17,7 +18,9 @@ export type TheaterBridge = {
   setConfig: (config: TheaterConfig | null) => Promise<boolean>;
   setScreen: (rect: Rect, enlarged: boolean) => void;
   send: (text: string) => Promise<boolean | null>;
-  navigate: (action: "home" | "back") => void;
+  navigate: (action: "home" | "back" | { url: string }) => void;
+  /** 笔记本：一起看过的每一次（新的在前） */
+  notebook: () => Promise<NotebookSession[]>;
   onState: (callback: (status: TheaterStatus) => void) => () => void;
   onEnlarge: (callback: (enlarged: boolean) => void) => () => void;
   /** 关掉放映厅窗口（游戏主窗口不受影响） */
@@ -109,6 +112,8 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
   const [showDiag, setShowDiag] = useState(false);
+  const [showNotebook, setShowNotebook] = useState(false);
+  const loadNotebook = useCallback(() => (bridge ? bridge.notebook() : Promise.resolve([])), [bridge]);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const partnerWasOnline = useRef(false);
   const partnerSideRef = useRef<Bubble["side"]>("left");
@@ -183,7 +188,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     const report = () => {
       const rect = surface.getBoundingClientRect();
       // 诊断面板打开时先把 B站画面收起来（它叠在最上层，会盖住面板）
-      const visible = Boolean(config) && !showDiag;
+      const visible = Boolean(config) && !showDiag && !showNotebook;
       bridge.setScreen({ x: rect.left, y: rect.top, width: visible ? rect.width : 0, height: visible ? rect.height : 0 }, enlarged);
     };
     report();
@@ -191,7 +196,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     observer.observe(surface);
     window.addEventListener("resize", report);
     return () => { observer.disconnect(); window.removeEventListener("resize", report); };
-  }, [bridge, enlarged, config, showDiag]);
+  }, [bridge, enlarged, config, showDiag, showNotebook]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setEnlarged(false); };
@@ -282,6 +287,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
             <button type="button" onClick={() => bridge?.navigate("back")} disabled={!status.canGoBack}>后退</button>
             <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
             <button type="button" className="enlarge-button" onClick={() => setEnlarged(true)}>放大银幕</button>
+            <button type="button" className="notebook-button" onClick={() => setShowNotebook(true)}>笔记本</button>
             <button type="button" className="leave-button" onClick={() => bridge?.close()}>离开放映厅</button>
           </nav>
         )}
@@ -306,6 +312,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
         </div>
       )}
 
+      {showNotebook && <NotebookPanel load={loadNotebook} onOpenVideo={(url) => { bridge?.navigate({ url }); setShowNotebook(false); }} onClose={() => setShowNotebook(false)} />}
       {notice && <p className="theater-notice" role="status">{notice}</p>}
       {init && !config && (
         <PairingCard

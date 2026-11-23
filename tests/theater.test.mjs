@@ -104,9 +104,16 @@ test("theater hall rebuilt from the reference image: dolls, hold-hands, bubbles 
   assert.match(css, /\.ticket-wrap \{[^}]*margin: var\(--cut-y, 0px\) 0 0 var\(--cut-x, 0px\)/);
   assert.match(css, /\.screen-controls \{[^}]*margin: var\(--cut-y, 0px\) 0 0 calc\(-1 \* var\(--cut-x, 0px\)\)/);
   assert.match(css, /\.chat-bar \{[^}]*margin-top: calc\(-1 \* var\(--cut-y, 0px\)\)/);
+  // 笔记本：右上角按钮打开；打开时收起 B站画面；主进程记录聊天 / 牵手 / 视频，点视频在银幕重新打开（只允许 B站）
+  const theaterMainSource = await read("../electron/theater.cjs");
+  assert.match(scene, /className="notebook-button" onClick=\{\(\) => setShowNotebook\(true\)\}>笔记本</);
+  assert.match(scene, /const visible = Boolean\(config\) && !showDiag && !showNotebook;/);
+  assert.match(theaterMainSource, /if \(sent\) recordMessage\(context, "me", text\)/);
+  assert.match(theaterMainSource, /recordMessage\(context, "partner", item\.msg\.slice\(0, 400\)\)/);
+  assert.match(theaterMainSource, /typeof action\.url === "string" && isBilibiliUrl\(action\.url\)\) webContents\.loadURL\(action\.url\)/);
+  assert.match(theaterMainSource, /else if \(!text\.startsWith\("\\u2063"\)\) context\.notebook\.chat/);
   // 连接诊断：点票根上的线路展开；展开时收起 B站画面，免得盖住面板
   assert.match(scene, /className="ticket-line"[^>]*onClick=\{\(\) => setShowDiag/);
-  assert.match(scene, /const visible = Boolean\(config\) && !showDiag;/);
   // 银幕在房间图下面，房间图不挡点击
   assert.match(stage, /className="screen-surface"[\s\S]*className="stage-room"/);
   assert.match(css, /\.stage-room \{[^}]*pointer-events: none/);

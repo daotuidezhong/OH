@@ -148,6 +148,18 @@
   };
   setInterval(announcePresence, 1000);
 
+  // 笔记本：银幕上正在放的视频（只报 B站视频页）
+  const videoPage = () => {
+    try {
+      const url = new URL(location.href);
+      if (!/(^|\.)bilibili\.com$/.test(url.hostname) || !/^\/(video|bangumi\/play|cheese\/play)\//.test(url.pathname)) return null;
+      const title = String(document.title || "").replace(/[_-]\s*哔哩哔哩.*$/, "").replace(/_bilibili$/i, "").trim().slice(0, 200);
+      return { url: url.href, title };
+    } catch {
+      return null;
+    }
+  };
+
   // 诊断：VideoTogether 内部的连接状态，票根上点线路文字可以展开查看（排查两台电脑连不上）
   const diagnose = (ext) => {
     const text = (value) => (value === undefined || value === null ? "" : String(value)).slice(0, 160);
@@ -206,6 +218,7 @@
         messages: queue.splice(0),
         events: events.splice(0),
         diag: diagnose(ext),
+        page: videoPage(),
       };
     },
   };
