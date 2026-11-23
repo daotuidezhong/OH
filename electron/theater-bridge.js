@@ -52,7 +52,12 @@
     ext.__ohSilenced = true;
   };
 
+  // VideoTogether 的弹窗（alert）会卡住整个 B站页面，放映厅里不弹
+  window.alert = (message) => { console.warn("[oh-theater] VideoTogether:", message); };
+
   const join = () => {
+    // 加载器已关掉“标签页存储”（见 vendor/videotogether/README.md）；设置被别处覆盖时再关一次
+    if (window.VideoTogetherStorage && window.VideoTogetherStorage.VideoTogetherTabStorageEnabled) window.VideoTogetherStorage.VideoTogetherTabStorageEnabled = false;
     const ext = extension();
     if (!ext || !config) return;
     silence(ext);

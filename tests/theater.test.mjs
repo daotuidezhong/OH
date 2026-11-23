@@ -38,6 +38,12 @@ test("opens Bilibili in an isolated, sandboxed theater window with pinned VideoT
   assert.match(theater, /preload: path\.join\(__dirname, "theater-preload\.cjs"\), contextIsolation: true, sandbox: true/);
   assert.match(theater, /callback\(permission === "fullscreen"\)/);
   assert.match(theater, /async function inject\(context\)[\s\S]*executeJavaScript\(loader, true\)[\s\S]*executeJavaScript\(vt, true\)[\s\S]*executeJavaScript\(bridge, true\)/);
+  // 关掉 VideoTogether 的“标签页存储”：否则观众跟随房主跳转后恢复不了房间，反复跳转、一直进不了房
+  assert.match(loader, /data\["VideoTogetherTabStorageEnabled"\] = false;/);
+  assert.doesNotMatch(loader, /data\["VideoTogetherTabStorageEnabled"\] = true;/);
+  const bridgeSource = await read("../electron/theater-bridge.js");
+  assert.match(bridgeSource, /window\.VideoTogetherStorage\.VideoTogetherTabStorageEnabled = false/);
+  assert.match(bridgeSource, /window\.alert = \(message\) =>/);
   assert.match(theater, /webContents\.on\("dom-ready", \(\) => inject\(context\)\)/);
   assert.match(theater, /function contextFor\(event\)[\s\S]*event\.sender === context\.window\.webContents/);
 

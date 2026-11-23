@@ -17,7 +17,12 @@ if (start < 0 || end < 0) throw new Error("上游加载器结构已变化，需�
 const patched = `${loader.slice(0, start)}    // OH patch: vt.js 由 OH 主进程从本地固定版本注入，不再从 CDN 下载。\n${loader.slice(end + "//*/\n    }".length)}`;
 if (/getCdnPath|release\/vt\./.test(patched)) throw new Error("补丁后仍包含 CDN 加载逻辑");
 
-await writeFile(join(here, "loader.website.js"), `// VideoTogether ${commit} release/extension.website.user.js（已打 OH 补丁，见 README.md）\n${patched}`);
+// OH 补丁：关掉“标签页存储”（原因见 README.md）。
+const TAB_STORAGE_ON = `            data["VideoTogetherTabStorageEnabled"] = true;`;
+if (!patched.includes(TAB_STORAGE_ON)) throw new Error("上游加载器结构已变化，需要人工检查标签页存储补丁");
+const patchedTab = patched.replace(TAB_STORAGE_ON, `            // OH patch: 不用“标签页存储”，见 README.md。\n            data["VideoTogetherTabStorageEnabled"] = false;`);
+
+await writeFile(join(here, "loader.website.js"), `// VideoTogether ${commit} release/extension.website.user.js（已打 OH 补丁，见 README.md）\n${patchedTab}`);
 await copyFile(join(upstream, "release/vt.zh-cn.website.js"), join(here, "vt.zh-cn.website.js"));
 await copyFile(join(upstream, "LICENSE"), join(here, "LICENSE"));
 console.log("VideoTogether 已更新到", commit);

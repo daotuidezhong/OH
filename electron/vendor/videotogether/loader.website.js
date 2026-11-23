@@ -489,7 +489,11 @@
             }
             data["UserscriptType"] = type;
             data["LoaddingVersion"] = version;
-            data["VideoTogetherTabStorageEnabled"] = true;
+            // OH patch: 不用“标签页存储”。网页版的标签页存储就是按域名隔离的 sessionStorage，且设置是异步送达的：
+            // 跳转时存进标签页存储、刷新后 VideoTogether 却在设置到达前就去 sessionStorage 恢复，找不到记录，
+            // 成员就会反复跳转、一直进不了房（跨域名时还会弹“请在跳转后再次加入”）。关掉后同域名跳转存
+            // sessionStorage、跨域名跳转把状态带在网址参数里，恢复都是同步读取的。
+            data["VideoTogetherTabStorageEnabled"] = false;
             data['ExtensionLanguages'] = languages;
             try {
                 data["VideoTogetherTabStorage"] = (await getGM().getTab()).VideoTogetherTabStorage;
