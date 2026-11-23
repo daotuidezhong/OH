@@ -121,6 +121,32 @@
   };
   setInterval(join, 1000);
 
+  // 诊断：VideoTogether 内部的连接状态，票根上点线路文字可以展开查看（排查两台电脑连不上）
+  const diagnose = (ext) => {
+    const text = (value) => (value === undefined || value === null ? "" : String(value)).slice(0, 160);
+    let status = "";
+    let statusColor = "";
+    try {
+      const statusText = document.querySelector("#videoTogetherStatusText");
+      if (statusText) { status = text(statusText.textContent).trim(); statusColor = text(statusText.style && statusText.style.color); }
+    } catch {}
+    if (!ext) return { ready: false, status, statusColor, page: text(typeof location !== "undefined" ? location.href : "") };
+    return {
+      ready: true,
+      host: text(ext.video_together_host),
+      pinned: text(pinnedHost),
+      wsOpen: Boolean(ext.ctxWsIsOpen),
+      httpOk: Boolean(ext.httpSucc),
+      minTrip: Number(ext.minTrip) || 0,
+      role: ext.role === ext.RoleEnum.Master ? "房主" : ext.role === ext.RoleEnum.Member ? "成员" : "未进房",
+      room: text(ext.roomName),
+      members: Number(ext.ctxMemberCount) || 0,
+      status,
+      statusColor,
+      page: text(typeof location !== "undefined" ? location.href : ""),
+    };
+  };
+
   window.__ohTheater = {
     configure(next) {
       config = next && typeof next.name === "string" && typeof next.password === "string" ? next : null;
@@ -151,6 +177,7 @@
         hasVideo: Boolean(document.querySelector("video")),
         messages: queue.splice(0),
         events: events.splice(0),
+        diag: diagnose(ext),
       };
     },
   };

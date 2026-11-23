@@ -8,7 +8,7 @@ import {
 import { ReferenceStage } from "./ReferenceStage";
 import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
-type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; line?: string; ambient?: number[] | null };
+type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; line?: string; diag?: Record<string, string | number | boolean> | null; ambient?: number[] | null };
 type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -66,6 +66,34 @@ function PairingCard({ onCreate, onJoin, onLeave }: { onCreate: () => void; onJo
   );
 }
 
+/** 连接诊断：同步插件内部的真实状态，两台电脑各截一张就能看出卡在哪 */
+function DiagPanel({ diag, line, onClose }: { diag?: Record<string, string | number | boolean> | null; line?: string; onClose: () => void }) {
+  const yes = (value: unknown) => (value ? "✓ 是" : "✗ 否");
+  const rows: [string, string][] = !diag
+    ? [["状态", "还没有数据（B站页面还在加载）"]]
+    : !diag.ready
+      ? [["同步插件", "还没加载"], ["状态栏", String(diag.status || "")], ["页面", String(diag.page || "")]]
+      : [
+          ["线路", line || "（还没定）"],
+          ["服务器", String(diag.host)],
+          ["锁定的服务器", String(diag.pinned || "（还没取到）")],
+          ["实时连接已打开", yes(diag.wsOpen)],
+          ["对时成功", `${yes(diag.httpOk)}${diag.httpOk ? `（往返 ${Math.round(Number(diag.minTrip) * 1000)} 毫秒）` : ""}`],
+          ["身份", String(diag.role)],
+          ["房间", String(diag.room)],
+          ["服务器上的人数", String(diag.members)],
+          ["插件状态", `${String(diag.status || "（无）")}${diag.statusColor === "red" ? "  ⚠" : ""}`],
+          ["页面", String(diag.page)],
+        ];
+  return (
+    <div className="diag-panel" role="dialog" aria-label="连接诊断">
+      <div className="diag-head"><b>连接诊断</b><button type="button" onClick={onClose}>关闭</button></div>
+      <dl>{rows.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>
+      <p>两台电脑各截一张这个面板发给开发者。</p>
+    </div>
+  );
+}
+
 export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge }) {
   const bridge = bridgeProp ?? (typeof window !== "undefined" ? window.ohTheater : undefined);
   const [init, setInit] = useState<TheaterInit | null>(null);
@@ -79,6 +107,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
   const [now, setNow] = useState(() => Date.now());
   const [notice, setNotice] = useState("");
   const [copied, setCopied] = useState(false);
+  const [showDiag, setShowDiag] = useState(false);
   const surfaceRef = useRef<HTMLDivElement>(null);
   const partnerWasOnline = useRef(false);
   const partnerSideRef = useRef<Bubble["side"]>("left");
@@ -152,14 +181,16 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     if (!bridge || !surface) return;
     const report = () => {
       const rect = surface.getBoundingClientRect();
-      bridge.setScreen({ x: rect.left, y: rect.top, width: config ? rect.width : 0, height: config ? rect.height : 0 }, enlarged);
+      // 诊断面板打开时先把 B站画面收起来（它叠在最上层，会盖住面板）
+      const visible = Boolean(config) && !showDiag;
+      bridge.setScreen({ x: rect.left, y: rect.top, width: visible ? rect.width : 0, height: visible ? rect.height : 0 }, enlarged);
     };
     report();
     const observer = new ResizeObserver(report);
     observer.observe(surface);
     window.addEventListener("resize", report);
     return () => { observer.disconnect(); window.removeEventListener("resize", report); };
-  }, [bridge, enlarged, config]);
+  }, [bridge, enlarged, config, showDiag]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setEnlarged(false); };
@@ -230,7 +261,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
           <div className="ticket-wrap" style={place(UI.ticket)}>
             <div className="ticket">
               <div className="ticket-main">
-                <span className="ticket-label"><b>放映厅</b><small title={status.line ? `同步线路：${status.line}` : undefined}>{init?.testMode ? `测试 ${init.label}` : status.line || "OH CINEMA"}</small></span>
+                <span className="ticket-label"><b>放映厅</b><small className="ticket-line" title="点一下查看连接诊断" onClick={() => setShowDiag((value) => !value)}>{init?.testMode ? `测试 ${init.label}` : status.line || "OH CINEMA"}</small></span>
                 <button type="button" className="ticket-code" onClick={copyCode} title="复制放映厅码发给 TA">{copied ? "已复制" : formatRoomCode(config.code)}</button>
                 <span className={`ticket-status ${partnerOnline ? "online" : ""}`} title={seatStatus}><i /><span>{seatStatus}</span></span>
               </div>
@@ -244,6 +275,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
             </div>
           </div>
         )}
+        {config && showDiag && <DiagPanel diag={status.diag} line={status.line} onClose={() => setShowDiag(false)} />}
         {config && (
           <nav className="screen-controls" style={place(UI.controls)} aria-label="银幕">
             <button type="button" onClick={() => bridge?.navigate("back")} disabled={!status.canGoBack}>后退</button>

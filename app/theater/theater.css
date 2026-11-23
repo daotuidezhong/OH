@@ -167,3 +167,14 @@ button:focus-visible, input:focus-visible { outline: 2px solid #ffd27a; outline-
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* 连接诊断面板：放在票根下方、银幕左侧（B站画面叠在银幕上，不能压到那里） */
+.ticket-line { cursor: pointer; text-decoration: underline dotted; text-underline-offset: 2px; }
+.diag-panel { position: fixed; z-index: 30; left: 12px; top: 120px; width: min(360px, calc(100vw - 24px)); max-height: calc(100vh - 140px); overflow: auto; padding: 12px 14px; border-radius: 12px; background: rgba(255, 246, 240, .97); color: #4a2028; font-size: 12px; box-shadow: 0 8px 24px rgba(0, 0, 0, .45); }
+.diag-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; font-size: 14px; }
+.diag-head button { padding: 2px 10px; border: 1px solid #c9a2a2; border-radius: 8px; background: #fff; color: #4a2028; cursor: pointer; }
+.diag-panel dl { display: grid; gap: 4px; margin: 0; }
+.diag-panel dl > div { display: grid; grid-template-columns: 96px 1fr; gap: 8px; }
+.diag-panel dt { color: #9a6a5e; }
+.diag-panel dd { margin: 0; word-break: break-all; }
+.diag-panel p { margin: 10px 0 0; color: #9a6a5e; }

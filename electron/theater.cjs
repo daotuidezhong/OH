@@ -150,6 +150,7 @@ async function poll(context) {
       hasVideo: Boolean(next.hasVideo),
       messages: (Array.isArray(next.messages) ? next.messages : []).filter((item) => item && typeof item.msg === "string").map((item) => ({ msg: item.msg.slice(0, 400) })),
       line: typeof next.line === "string" ? next.line.slice(0, 10) : "",
+      diag: next.diag && typeof next.diag === "object" ? Object.fromEntries(Object.entries(next.diag).slice(0, 16).map(([key, value]) => [String(key).slice(0, 20), typeof value === "string" ? value.slice(0, 160) : typeof value === "number" || typeof value === "boolean" ? value : ""])) : null,
       canGoBack: context.view.webContents.navigationHistory.canGoBack(),
       ambient: await sampleScreen(context),
     });
