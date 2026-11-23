@@ -25,17 +25,10 @@ function loadBridge() {
     CreateRoom(name, password) { calls.push(["create", name, password]); this.role = 2; this.roomName = name; },
     JoinRoom(name, password) { calls.push(["join", name, password]); this.role = 3; this.roomName = name; },
     exitRoom() { calls.push("exit"); this.role = 1; this.roomName = ""; },
-    ScheduledTask() { calls.push("tick"); },
   };
   const document = {
     head: { appendChild() {} },
-    documentElement: {
-      classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } },
-      attributes: new Set(),
-      hasAttribute(name) { return this.attributes.has(name); },
-      setAttribute(name) { this.attributes.add(name); },
-      removeAttribute(name) { this.attributes.delete(name); },
-    },
+    documentElement: { classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } } },
     createElement: () => ({}),
     querySelector: () => ({}),
   };
@@ -51,26 +44,24 @@ function loadBridge() {
   const raw = window.__ohTheater;
   // vm 沙箱里的数组原型不同，取出时转成普通值再比较。
   const api = { ...raw, drain: () => JSON.parse(JSON.stringify(raw.drain())) };
-  return { api, window, extension, calls, classes, fire, document };
+  return { api, window, extension, calls, classes, fire };
 }
 
 test("bridge creates or joins the shared room exactly once and silences VideoTogether speech", () => {
   const master = loadBridge();
   const credentials = roomCredentials("K7Q2MX");
   master.api.configure({ ...credentials, role: "master" });
-  // 建房后立刻跑一次 VideoTogether 的定时任务（连服务器、上传房间），不用等它自己的 2 秒周期
-  assert.deepEqual(master.calls, [["create", credentials.name, credentials.password], "tick"]);
+  assert.deepEqual(master.calls, [["create", credentials.name, credentials.password]]);
   master.api.configure({ ...credentials, role: "master" });
-  assert.equal(master.calls.filter((call) => Array.isArray(call)).length, 1, "already in the room: no second create");
-  assert.equal(master.calls.filter((call) => call === "tick").length, 1, "只在建房时多跑一次，之后不额外加请求（服务器会限流）");
+  assert.equal(master.calls.length, 1, "already in the room: no second create");
   master.extension.gotTextMsg("x", "hello");
   assert.ok(!master.calls.includes("speak"), "text-to-speech replaced by bubbles");
 
   const member = loadBridge();
   member.api.configure({ ...credentials, role: "member" });
-  assert.deepEqual(member.calls, [["join", credentials.name, credentials.password], "tick"]);
+  assert.deepEqual(member.calls, [["join", credentials.name, credentials.password]]);
   member.extension.ctxMemberCount = 2;
-  assert.deepEqual({ ...member.api.drain(), messages: [], events: [], controls: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [], controls: [], vtError: "" });
+  assert.deepEqual({ ...member.api.drain(), messages: [], events: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [] });
 });
 
 test("bridge relays partner messages, hides its own echoes, and sends through VideoTogether", () => {
@@ -90,14 +81,9 @@ test("bridge relays partner messages, hides its own echoes, and sends through Vi
 });
 
 test("small screen swallows clicks and asks to enlarge; enlarged screen passes clicks through", () => {
-  const { api, classes, fire, document } = loadBridge();
+  const { api, classes, fire } = loadBridge();
   api.setSmall(true);
   assert.ok(classes.has("oh-small"));
-  assert.ok(document.documentElement.attributes.has("data-oh-small"), "小银幕标记放在属性上，B站重写 class 也不会丢");
-  // B站把 <html> 的 class / 属性冲掉：下一次 drain 补回来
-  document.documentElement.attributes.clear();
-  api.drain();
-  assert.ok(document.documentElement.attributes.has("data-oh-small"));
   assert.equal(fire("pointerdown"), true);
   assert.equal(fire("click"), true);
   assert.deepEqual(api.drain().events, [{ type: "enlarge" }]);

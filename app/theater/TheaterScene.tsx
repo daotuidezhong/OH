@@ -8,26 +8,7 @@ import {
 import { ReferenceStage } from "./ReferenceStage";
 import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
-type TheaterControl = { a: "pause" | "play" | "seek" | "url" | "rate"; t: number; by?: "me" | "partner" };
-type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; controls?: TheaterControl[]; vtError?: string; ambient?: number[] | null };
-
-const clock = (seconds: number) => {
-  const total = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(total / 3600);
-  const m = Math.floor((total % 3600) / 60);
-  const s = String(total % 60).padStart(2, "0");
-  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
-};
-/** 对方在自己那边操作了播放器，这边已经跟着同步：给一句提示 */
-export function controlNotice(control: TheaterControl): string {
-  // 自己在播放器上动手：这边接过了遥控器，TA 会跟着
-  if (control.by === "me") return "你在控制播放，TA 会跟着你";
-  if (control.a === "rate") return "TA 调了倍速";
-  if (control.a === "pause") return "TA 暂停了";
-  if (control.a === "play") return "TA 继续播放";
-  if (control.a === "seek") return `TA 跳到了 ${clock(control.t)}`;
-  return "TA 换了一个视频";
-}
+type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; ambient?: number[] | null };
 type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -129,8 +110,6 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     if (!bridge) return;
     const offState = bridge.onState((next) => {
       setStatus(next);
-      const control = next.controls?.at(-1);
-      if (control) setNotice(controlNotice(control));
       for (const { msg } of next.messages) {
         const message = parseTheaterMessage(msg);
         if (!message) continue;
@@ -220,8 +199,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
   };
 
   const talking = (side: Bubble["side"]) => bubbles.some((bubble) => bubble.side === side && now - bubble.at < TALK_MS);
-  // 同步服务连不上时显示原因（VideoTogether 的错误提示），方便排查
-  const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : status.vtError ? `连接中：${status.vtError}` : "等 TA 入座…";
+  const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : "等 TA 入座…";
   const latestPartner = [...bubbles].reverse().find((bubble) => bubble.side === partnerSide);
   const arriving = partnerOnline && now - arrivedAt < ARRIVE_MS;
   const light = screenLight(config ? status.ambient : null);
@@ -292,8 +270,6 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
           <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
           <span className={`enlarged-status ${partnerOnline ? "online" : ""}`}><i />{seatStatus}</span>
           {latestPartner && now - latestPartner.at < BUBBLE_MS && <span className="enlarged-message">TA：{latestPartner.text}</span>}
-          {/* 放大时 B站画面在最上层，提示放在顶栏里 */}
-          {notice && <span className="enlarged-notice" role="status">{notice}</span>}
         </div>
       )}
 

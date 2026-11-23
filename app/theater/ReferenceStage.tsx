@@ -12,9 +12,7 @@ function useStageBox() {
   const [box, setBox] = useState({ left: 0, top: 0, width: 0, height: 0 });
   useLayoutEffect(() => {
     const update = () => {
-      // 按窗口宽度缩放：窗口比参考图宽时上下裁一点（界面往里收），比参考图窄时上下留深色边。
-      // 从不左右裁切，否则票根和右上按钮往里收时会压到银幕上，被叠在最上层的 B站画面盖住。
-      const scale = window.innerWidth / STAGE_W;
+      const scale = Math.max(window.innerWidth / STAGE_W, window.innerHeight / STAGE_H);
       const width = STAGE_W * scale;
       const height = STAGE_H * scale;
       setBox({ left: (window.innerWidth - width) / 2, top: (window.innerHeight - height) / 2, width, height });
