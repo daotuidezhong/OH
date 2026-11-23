@@ -5,7 +5,8 @@ import {
   cleanChatText, CHAT_MAX_LENGTH, formatRoomCode, generateRoomCode, HOLD_TOKEN,
   normalizeRoomCode, parseTheaterMessage, screenLight, type TheaterConfig,
 } from "./protocol";
-import { bubbleAnchor, PixelStage, seatAnchor } from "./PixelStage";
+import { ReferenceStage } from "./ReferenceStage";
+import { BUBBLE, EMPTY_SEAT, place, point, UI } from "./stageLayout";
 
 type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; ambient?: number[] | null };
 type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
@@ -195,36 +196,28 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
 
   return (
     <main className={`theater ${enlarged ? "is-enlarged" : ""} ${holding ? "is-holding" : ""}`} data-partner={partnerOnline ? "online" : "offline"} style={lightStyle}>
-      <PixelStage
+      <ReferenceStage
         partner={partnerOnline}
         me={Boolean(config)}
         talkLeft={talking("left")}
         talkRight={talking("right")}
         holding={holding}
+        arriving={partnerOnline && now - arrivedAt < ARRIVE_MS}
         surfaceRef={surfaceRef}
         screenChildren={!config && <div className="screen-idle"><b>OH CINEMA</b><span>配对后开始放映</span></div>}
-        overlay={(
-          <>
-            {(["left", "right"] as const).map((side) => (
-              <div key={side} className={`bubble-stack bubble-stack-${side}`} style={bubbleAnchor(side)}>
-                {bubbles.filter((bubble) => bubble.side === side).slice(-2).map((bubble) => (
-                  <p key={bubble.id} className={`bubble ${now - bubble.at > BUBBLE_MS - 900 ? "leaving" : ""}`}>{bubble.text}</p>
-                ))}
-              </div>
+      >
+        {(["left", "right"] as const).map((side) => (
+          <div key={side} className={`bubble-stack bubble-stack-${side}`} style={point(BUBBLE[side].x, BUBBLE[side].y)}>
+            {bubbles.filter((bubble) => bubble.side === side).slice(-2).map((bubble) => (
+              <p key={bubble.id} className={`bubble ${now - bubble.at > BUBBLE_MS - 900 ? "leaving" : ""}`}>{bubble.text}</p>
             ))}
-            {partnerOnline && now - arrivedAt < ARRIVE_MS && <div className="arrive-sparkles" style={seatAnchor("left")} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
-            {config && !partnerOnline && <p className="empty-seat" style={seatAnchor("left")}>TA 的座位</p>}
-          </>
-        )}
-      />
-      <div className="aisle-lights aisle-left" aria-hidden="true"><i /><i /><i /></div>
-      <div className="aisle-lights aisle-right" aria-hidden="true"><i /><i /><i /></div>
-      <div className="film-grain" aria-hidden="true" />
-      <div className="vignette" aria-hidden="true" />
+          </div>
+        ))}
+        {partnerOnline && now - arrivedAt < ARRIVE_MS && <div className="arrive-sparkles" style={point(EMPTY_SEAT.x, EMPTY_SEAT.y - 40)} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
+        {config && !partnerOnline && <p className="empty-seat" style={point(EMPTY_SEAT.x, EMPTY_SEAT.y)}>TA 的座位</p>}
 
-      <header className="theater-hud">
         {config && (
-          <div className="ticket">
+          <div className="ticket" style={place(UI.ticket)}>
             <span className="ticket-label">放映厅{init?.testMode ? ` · 测试 ${init.label}` : ""}</span>
             <button type="button" className="ticket-code" onClick={copyCode} title="复制放映厅码发给 TA">{copied ? "已复制" : formatRoomCode(config.code)}</button>
             <span className={`ticket-status ${partnerOnline ? "online" : ""}`}><i />{seatStatus}</span>
@@ -232,23 +225,22 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
           </div>
         )}
         {config && (
-          <nav className="screen-controls" aria-label="银幕">
+          <nav className="screen-controls" style={place(UI.controls)} aria-label="银幕">
             <button type="button" onClick={() => bridge?.navigate("back")} disabled={!status.canGoBack}>后退</button>
             <button type="button" onClick={() => bridge?.navigate("home")}>B站首页</button>
             <button type="button" className="enlarge-button" onClick={() => setEnlarged(true)}>放大银幕</button>
           </nav>
         )}
-      </header>
-
-      {config && (
-        <form className="chat-bar" onSubmit={sendChat}>
-          <input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={CHAT_MAX_LENGTH} placeholder={partnerOnline ? "和 TA 说点什么…" : "TA 还没来，先写好想说的话"} aria-label="聊天" />
-          <button type="submit" disabled={!cleanChatText(draft) || !status.inRoom}>发送</button>
-          <button type="button" className={`hold-button ${holding ? "active" : ""}`} onClick={holdHands} disabled={!partnerOnline} title={partnerOnline ? "牵牵 TA 的手" : "TA 还没来"}>
-            <span aria-hidden="true">💞</span>牵手
-          </button>
-        </form>
-      )}
+        {config && (
+          <form className="chat-bar" style={place(UI.chat)} onSubmit={sendChat}>
+            <input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={CHAT_MAX_LENGTH} placeholder={partnerOnline ? "和 TA 说点什么…" : "TA 还没来，先写好想说的话"} aria-label="聊天" />
+            <button type="submit" className="send-button" disabled={!cleanChatText(draft) || !status.inRoom}>发送</button>
+            <button type="button" className={`hold-button ${holding ? "active" : ""}`} onClick={holdHands} disabled={!partnerOnline} title={partnerOnline ? "牵牵 TA 的手" : "TA 还没来"}>
+              <svg className="hold-heart-icon" viewBox="0 0 14 13" aria-hidden="true"><path d="M7 13C7 13 0 8.6 0 4.2 0 1.8 1.8 0 4 0c1.4 0 2.5.8 3 1.9C7.5.8 8.6 0 10 0c2.2 0 4 1.8 4 4.2C14 8.6 7 13 7 13Z" /></svg>{holding ? "牵手中" : "牵手"}
+            </button>
+          </form>
+        )}
+      </ReferenceStage>
 
       {enlarged && (
         <div className="enlarged-bar">

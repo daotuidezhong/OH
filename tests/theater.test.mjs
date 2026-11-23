@@ -71,29 +71,32 @@ test("theater test mode isolates data before taking the single-instance lock", a
   assert.match(electronMain, /openTheaterWindow\(\{ icon, parent: window, configFile: path\.join\(app\.getPath\("userData"\), "theater\.json"\) \}\)/);
 });
 
-test("pixel theater hall: dolls, side bubbles, hold-hands and enlargeable screen are wired up", async () => {
+test("theater hall rebuilt from the reference image: dolls, hold-hands, bubbles and enlargeable screen", async () => {
   const scene = await read("../app/theater/TheaterScene.tsx");
-  const stage = await read("../app/theater/PixelStage.tsx");
+  const stage = await read("../app/theater/ReferenceStage.tsx");
   const css = await read("../app/theater/theater.css");
   const vite = await read("../desktop/vite.config.ts");
   assert.match(vite, /theater: path\.resolve\(import\.meta\.dirname, "theater\.html"\)/);
-  // 粉色玩偶 = TA，只在对方上线时出现；白色戴耳机玩偶 = 我
+  // 粉色蝴蝶结玩偶 = TA，只在对方上线时出现；戴蓝色耳机的玩偶 = 我
   assert.match(scene, /const partnerOnline = Boolean\(config && status\.inRoom && status\.members >= 2\)/);
-  assert.match(scene, /<PixelStage\s+partner=\{partnerOnline\}\s+me=\{Boolean\(config\)\}/);
+  assert.match(scene, /<ReferenceStage\s+partner=\{partnerOnline\}\s+me=\{Boolean\(config\)\}/);
+  assert.match(stage, /\{partner && <Sprite sprite=\{SPRITES\.dollLeft\}/);
+  assert.match(stage, /\{hold && <Sprite sprite=\{SPRITES\.armLeft\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.armRight\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.heart\}/);
+  // 银幕在房间图下面，房间图不挡点击
+  assert.match(stage, /className="screen-surface"[\s\S]*className="stage-room"/);
+  assert.match(css, /\.stage-room \{[^}]*pointer-events: none/);
   // TA 的消息冒在左边，我的在右边；牵手走专用信号
   assert.match(scene, /if \(message\.kind === "hold"\) setHoldUntil[\s\S]*else addBubble\("left", message\.text\)/);
   assert.match(scene, /if \(await bridge\.send\(text\)\) addBubble\("right", text\)/);
   assert.match(scene, /await bridge\.send\(HOLD_TOKEN\)/);
-  assert.match(scene, /className=\{`hold-button[\s\S]*牵手/);
+  assert.match(scene, /\{holding \? "牵手中" : "牵手"\}/);
   assert.doesNotMatch(scene, /牵脚|FEET/);
-  // 像素画布按像素放大；房间小灯定时重画，座位层随转头 / 牵手重画
-  assert.match(css, /\.pixel-layer \{[^}]*image-rendering: pixelated/);
-  assert.match(stage, /setInterval\(paint, 150\)/);
-  assert.match(stage, /drawSeats\(ctx, state\)/);
+  // 牵手：手臂从身侧伸出，爱心随后出现
+  assert.match(css, /@keyframes reach-left \{ from \{ clip-path: inset\(0 100% 0 0\); \}/);
+  assert.match(css, /\.heart \{[^}]*heart-pop/);
   // 房间灯光跟随银幕画面
   assert.match(scene, /const light = screenLight\(config \? status\.ambient : null\)/);
-  assert.match(css, /\.screen-light \{[^}]*rgb\(var\(--screen-rgb\) \/ \.55\)/);
   // 放大银幕：舞台不用 transform，银幕以 fixed 铺满
   assert.match(css, /\.is-enlarged \.screen-surface \{ position: fixed; inset: 48px 0 0 0 !important;/);
-  assert.doesNotMatch(css.match(/\.pixel-stage \{[^}]*\}/)[0], /transform/);
+  assert.doesNotMatch(css.match(/\.reference-stage \{[^}]*\}/)[0], /transform/);
 });
