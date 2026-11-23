@@ -1,10 +1,10 @@
-// 放映厅的纯规则：放映厅码、房间凭据、聊天与“牵脚”消息的编码。主进程、放映厅页面和测试共用。
+// 放映厅的纯规则：放映厅码、房间凭据、聊天与“牵手”消息的编码。主进程、放映厅页面和测试共用。
 
 /** 去掉容易看错的 0/O、1/I/L。 */
 export const ROOM_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 export const ROOM_CODE_LENGTH = 6;
-/** 不可见的分隔符开头，普通聊天不可能打出来。 */
-export const FEET_TOKEN = "⁣OH:FEET";
+/** “牵手”信号。不可见的分隔符开头，普通聊天不可能打出来。 */
+export const HOLD_TOKEN = "\u2063OH:HAND";
 export const CHAT_MAX_LENGTH = 80;
 
 export type TheaterRole = "master" | "member";
@@ -40,7 +40,7 @@ export function isTheaterConfig(value: unknown): value is TheaterConfig {
   return typeof code === "string" && normalizeRoomCode(code) === code && (role === "master" || role === "member");
 }
 
-export type TheaterMessage = { kind: "feet" } | { kind: "chat"; text: string };
+export type TheaterMessage = { kind: "hold" } | { kind: "chat"; text: string };
 
 export function cleanChatText(text: string) {
   return text.replace(/[⁣\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, CHAT_MAX_LENGTH);
@@ -48,7 +48,18 @@ export function cleanChatText(text: string) {
 
 export function parseTheaterMessage(raw: unknown): TheaterMessage | null {
   if (typeof raw !== "string") return null;
-  if (raw === FEET_TOKEN) return { kind: "feet" };
+  if (raw === HOLD_TOKEN) return { kind: "hold" };
   const text = cleanChatText(raw);
   return text ? { kind: "chat", text } : null;
+}
+
+/** 把银幕平均色变成房间灯光：太暗时保留一点底光，太艳时略微压低饱和度。 */
+export function screenLight(ambient: number[] | null | undefined) {
+  if (!ambient || ambient.length !== 3 || ambient.some((value) => !Number.isFinite(value))) return { rgb: "170 190 240", level: 0.45 };
+  const [r, g, b] = ambient.map((value) => Math.min(255, Math.max(0, value)));
+  const luminance = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+  const gray = (r + g + b) / 3;
+  const lift = luminance < 0.25 ? (0.25 - luminance) * 255 : 0;
+  const mix = (value: number) => Math.round(Math.min(255, (value * 0.8 + gray * 0.2) + lift));
+  return { rgb: `${mix(r)} ${mix(g)} ${mix(b)}`, level: Math.max(0.18, Math.min(1, luminance * 1.3)) };
 }

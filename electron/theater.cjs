@@ -107,6 +107,33 @@ function sendToScene(context, channel, payload) {
   if (!context.window.isDestroyed()) context.window.webContents.send(channel, payload);
 }
 
+/** 银幕颜色：每 0.6 秒截一张很小的缩略图取平均色，放映厅的灯光跟着画面变。 */
+async function sampleScreen(context) {
+  const now = Date.now();
+  if (context.enlarged || context.sampling || now - context.sampledAt < 600) return context.ambient;
+  context.sampling = true;
+  context.sampledAt = now;
+  try {
+    const bounds = context.view.getBounds();
+    if (bounds.width > 0 && bounds.height > 0) {
+      const image = await context.view.webContents.capturePage();
+      if (!image.isEmpty()) {
+        const bitmap = image.resize({ width: 12, quality: "good" }).toBitmap();
+        let red = 0; let green = 0; let blue = 0; let count = 0;
+        for (let index = 0; index + 3 < bitmap.length; index += 4) {
+          blue += bitmap[index]; green += bitmap[index + 1]; red += bitmap[index + 2]; count += 1;
+        }
+        if (count) context.ambient = [red, green, blue].map((value) => Math.round(value / count));
+      }
+    }
+  } catch {
+    // 截图失败时保持上一次的颜色
+  } finally {
+    context.sampling = false;
+  }
+  return context.ambient;
+}
+
 async function poll(context) {
   if (context.polling || context.view.webContents.isDestroyed()) return;
   context.polling = true;
@@ -123,6 +150,7 @@ async function poll(context) {
       hasVideo: Boolean(next.hasVideo),
       messages: (Array.isArray(next.messages) ? next.messages : []).filter((item) => item && typeof item.msg === "string").map((item) => ({ msg: item.msg.slice(0, 400) })),
       canGoBack: context.view.webContents.navigationHistory.canGoBack(),
+      ambient: await sampleScreen(context),
     });
   } finally {
     context.polling = false;
@@ -221,6 +249,9 @@ function openTheaterWindow({ icon, parent, configFile, partition = THEATER_PARTI
     config: testConfig || (configFile ? readConfig(configFile) : null),
     enlarged: false,
     polling: false,
+    sampling: false,
+    sampledAt: 0,
+    ambient: null,
     timer: null,
   };
   contexts.set(window.webContents.id, context);

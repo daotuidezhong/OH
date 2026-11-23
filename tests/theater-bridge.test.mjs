@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import vm from "node:vm";
-import { FEET_TOKEN, roomCredentials } from "../app/theater/protocol.ts";
+import { HOLD_TOKEN, roomCredentials } from "../app/theater/protocol.ts";
 
 const bridgeSource = await readFile(new URL("../electron/theater-bridge.js", import.meta.url), "utf8");
 const theaterMain = await readFile(new URL("../electron/theater.cjs", import.meta.url), "utf8");
@@ -70,8 +70,8 @@ test("bridge relays partner messages, hides its own echoes, and sends through Vi
   const sent = [];
   window.addEventListener("message", (event) => { if (event.data.type === 30) sent.push(event.data.data); });
   assert.equal(api.send("到啦"), true);
-  assert.equal(api.send(FEET_TOKEN), true);
-  assert.deepEqual(sent.map((item) => item.value), ["到啦", FEET_TOKEN]);
+  assert.equal(api.send(HOLD_TOKEN), true);
+  assert.deepEqual(sent.map((item) => item.value), ["到啦", HOLD_TOKEN]);
   // 服务器把自己发的消息回传：不重复显示
   for (const item of sent) window.postMessage({ source: "VideoTogether", type: 31, data: { id: item.currentSendingMsgId, msg: item.value } });
   window.postMessage({ source: "VideoTogether", type: 31, data: { id: "remote", msg: "你到了吗" } });

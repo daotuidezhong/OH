@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import {
-  cleanChatText, CHAT_MAX_LENGTH, FEET_TOKEN, formatRoomCode, generateRoomCode,
-  normalizeRoomCode, parseTheaterMessage, type TheaterConfig,
+  cleanChatText, CHAT_MAX_LENGTH, formatRoomCode, generateRoomCode, HOLD_TOKEN,
+  normalizeRoomCode, parseTheaterMessage, screenLight, type TheaterConfig,
 } from "./protocol";
-import { HEAD_ANCHOR, SeatsArt } from "./SeatsArt";
+import { bubbleAnchor, PixelStage, seatAnchor } from "./PixelStage";
 
-type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[] };
+type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; ambient?: number[] | null };
 type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -102,7 +102,7 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
       for (const { msg } of next.messages) {
         const message = parseTheaterMessage(msg);
         if (!message) continue;
-        if (message.kind === "feet") setHoldUntil(Date.now() + HOLD_MS);
+        if (message.kind === "hold") setHoldUntil(Date.now() + HOLD_MS);
         else addBubble("left", message.text);
       }
     });
@@ -170,10 +170,10 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     else setNotice("消息没发出去，稍后再试");
   };
 
-  const holdFeet = async () => {
+  const holdHands = async () => {
     if (!bridge || !partnerOnline) return;
     setHoldUntil(Date.now() + HOLD_MS);
-    await bridge.send(FEET_TOKEN);
+    await bridge.send(HOLD_TOKEN);
   };
 
   const copyCode = async () => {
@@ -190,16 +190,37 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
   const talking = (side: Bubble["side"]) => bubbles.some((bubble) => bubble.side === side && now - bubble.at < TALK_MS);
   const seatStatus = !config ? "" : !status.inRoom ? "正在进入放映厅…" : partnerOnline ? "TA 在线" : "等 TA 入座…";
   const latestPartner = [...bubbles].reverse().find((bubble) => bubble.side === "left");
+  const light = screenLight(config ? status.ambient : null);
+  const lightStyle = { "--screen-rgb": light.rgb, "--screen-level": light.level } as CSSProperties;
 
   return (
-    <main className={`theater ${enlarged ? "is-enlarged" : ""} ${holding ? "is-holding" : ""}`} data-partner={partnerOnline ? "online" : "offline"}>
-      <div className="theater-room" aria-hidden="true">
-        <div className="room-ceiling" />
-        <div className="screen-spill" />
-        <div className="projector-beam"><i /><i /><i /><i /><i /><i /><i /><i /></div>
-        <div className="aisle-lights aisle-left"><i /><i /><i /><i /></div>
-        <div className="aisle-lights aisle-right"><i /><i /><i /><i /></div>
-      </div>
+    <main className={`theater ${enlarged ? "is-enlarged" : ""} ${holding ? "is-holding" : ""}`} data-partner={partnerOnline ? "online" : "offline"} style={lightStyle}>
+      <PixelStage
+        partner={partnerOnline}
+        me={Boolean(config)}
+        talkLeft={talking("left")}
+        talkRight={talking("right")}
+        holding={holding}
+        surfaceRef={surfaceRef}
+        screenChildren={!config && <div className="screen-idle"><b>OH CINEMA</b><span>配对后开始放映</span></div>}
+        overlay={(
+          <>
+            {(["left", "right"] as const).map((side) => (
+              <div key={side} className={`bubble-stack bubble-stack-${side}`} style={bubbleAnchor(side)}>
+                {bubbles.filter((bubble) => bubble.side === side).slice(-2).map((bubble) => (
+                  <p key={bubble.id} className={`bubble ${now - bubble.at > BUBBLE_MS - 900 ? "leaving" : ""}`}>{bubble.text}</p>
+                ))}
+              </div>
+            ))}
+            {partnerOnline && now - arrivedAt < ARRIVE_MS && <div className="arrive-sparkles" style={seatAnchor("left")} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
+            {config && !partnerOnline && <p className="empty-seat" style={seatAnchor("left")}>TA 的座位</p>}
+          </>
+        )}
+      />
+      <div className="aisle-lights aisle-left" aria-hidden="true"><i /><i /><i /></div>
+      <div className="aisle-lights aisle-right" aria-hidden="true"><i /><i /><i /></div>
+      <div className="film-grain" aria-hidden="true" />
+      <div className="vignette" aria-hidden="true" />
 
       <header className="theater-hud">
         {config && (
@@ -219,43 +240,12 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
         )}
       </header>
 
-      <section className="stage">
-        <div className="curtain curtain-left" aria-hidden="true" />
-        <div className="curtain curtain-right" aria-hidden="true" />
-        <div className="valance" aria-hidden="true" />
-        <div className="screen-wrap">
-          <div className="screen-frame">
-            <div className="screen-surface" ref={surfaceRef} aria-label="银幕：点击放大">
-              {!config && <div className="screen-idle"><b>OH CINEMA</b><span>配对后开始放映</span></div>}
-            </div>
-          </div>
-          {config && !enlarged && <p className="screen-hint">点击银幕放大，挑片、拖进度都在大银幕里</p>}
-        </div>
-      </section>
-
-      <section className="seats" aria-label="座位">
-        <SeatsArt
-          partner={{ visible: partnerOnline, talking: talking("left"), arriving: now - arrivedAt < ARRIVE_MS }}
-          me={{ visible: Boolean(config), talking: talking("right") }}
-          holding={holding}
-        />
-        {(["left", "right"] as const).map((side) => (
-          <div key={side} className={`bubble-stack bubble-stack-${side}`} style={{ left: `${HEAD_ANCHOR[side].x}%`, bottom: `${100 - HEAD_ANCHOR[side].y}%` }}>
-            {bubbles.filter((bubble) => bubble.side === side).slice(-3).map((bubble) => (
-              <p key={bubble.id} className={`bubble ${now - bubble.at > BUBBLE_MS - 900 ? "leaving" : ""}`}>{bubble.text}</p>
-            ))}
-          </div>
-        ))}
-        {partnerOnline && now - arrivedAt < ARRIVE_MS && <div className="arrive-sparkles" style={{ left: `${HEAD_ANCHOR.left.x}%` }} aria-hidden="true"><i /><i /><i /><i /><i /></div>}
-        {config && !partnerOnline && <p className="empty-seat">TA 的座位</p>}
-      </section>
-
       {config && (
         <form className="chat-bar" onSubmit={sendChat}>
           <input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={CHAT_MAX_LENGTH} placeholder={partnerOnline ? "和 TA 说点什么…" : "TA 还没来，先写好想说的话"} aria-label="聊天" />
           <button type="submit" disabled={!cleanChatText(draft) || !status.inRoom}>发送</button>
-          <button type="button" className={`feet-button ${holding ? "active" : ""}`} onClick={holdFeet} disabled={!partnerOnline} title={partnerOnline ? "牵牵 TA 的脚" : "TA 还没来"}>
-            <span aria-hidden="true">🐾</span>牵脚
+          <button type="button" className={`hold-button ${holding ? "active" : ""}`} onClick={holdHands} disabled={!partnerOnline} title={partnerOnline ? "牵牵 TA 的手" : "TA 还没来"}>
+            <span aria-hidden="true">💞</span>牵手
           </button>
         </form>
       )}

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  cleanChatText, FEET_TOKEN, formatRoomCode, generateRoomCode, isTheaterConfig,
+  cleanChatText, HOLD_TOKEN, formatRoomCode, generateRoomCode, isTheaterConfig,
   normalizeRoomCode, parseTheaterMessage, roomCredentials, ROOM_CODE_ALPHABET,
 } from "../app/theater/protocol.ts";
 
@@ -31,11 +31,11 @@ test("both partners derive the same VideoTogether room", () => {
   assert.ok(!isTheaterConfig({ code: "K7Q2MX", role: "host" }));
 });
 
-test("separates hold-feet signals from chat and cleans chat text", () => {
-  assert.deepEqual(parseTheaterMessage(FEET_TOKEN), { kind: "feet" });
+test("separates hold-hands signals from chat and cleans chat text", () => {
+  assert.deepEqual(parseTheaterMessage(HOLD_TOKEN), { kind: "hold" });
   assert.deepEqual(parseTheaterMessage("  晚上好\n呀 "), { kind: "chat", text: "晚上好 呀" });
   assert.equal(parseTheaterMessage("   "), null);
   assert.equal(parseTheaterMessage(42), null);
-  assert.equal(cleanChatText(`${FEET_TOKEN}hi`), "OH:FEEThi");
+  assert.equal(cleanChatText(`${HOLD_TOKEN}hi`), "OH:HANDhi");
   assert.equal(cleanChatText("哈".repeat(200)).length, 80);
 });
