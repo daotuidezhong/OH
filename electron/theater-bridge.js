@@ -124,6 +124,43 @@
   for (const type of ["pointerdown", "keydown"]) window.addEventListener(type, rememberGesture, true);
 
   const ACTIONS = { seeking: "seek", play: "play", pause: "pause", ratechange: "rate" };
+  // VideoTogether 刚把这边的播放器同步成房间的样子：同步后 1 秒内，和同步目标一致的变化不是人在操作
+  // （例如点一下窗口获得焦点时刚好赶上同步，不能当成要接管）；和目标不一致的仍然算。
+  const SYNC_WINDOW_MS = 1000;
+  let syncTarget = null;
+  const causedBySync = (type, video) => {
+    if (!syncTarget || Date.now() - syncTarget.at > SYNC_WINDOW_MS) return false;
+    if (type === "seeking") return Math.abs((Number(video.currentTime) || 0) - syncTarget.time) < 1.5;
+    if (type === "play") return syncTarget.paused === false;
+    if (type === "pause") return syncTarget.paused === true || syncTarget.loading;
+    return false;
+  };
+
+  // 本标签页里“遥控器在谁手里”。B站换视频常常整页刷新，VideoTogether 只能恢复 60 秒内存过的身份，
+  // 恢复不了就会回到最初的身份、两边都当房主。这里自己记一份，刷新后以它为准，每次 drain 也会纠正。
+  const HOLDER_KEY = "oh-theater-holder";
+  const readHolder = () => {
+    try {
+      const store = storage();
+      const saved = store ? JSON.parse(store.getItem(HOLDER_KEY) || "null") : null;
+      if (saved && config && saved.room === config.name && (saved.role === "master" || saved.role === "member")) return saved;
+    } catch {}
+    return null;
+  };
+  const writeHolder = (role, at) => {
+    try { const store = storage(); if (store && config) store.setItem(HOLDER_KEY, JSON.stringify({ room: config.name, role, at })); } catch {}
+  };
+  const setVtRole = (ext, role, at) => {
+    ext.setRole(role === "master" ? ext.RoleEnum.Master : ext.RoleEnum.Member);
+    writeHolder(role, at);
+  };
+
+  // 当前房主每隔一会儿告诉对方“遥控器在我这”：两边都以为自己是房主时，后接管的留下；
+  // 两边都成了成员（消息丢了）时，创建者过一会儿自己收回来，不会卡住。
+  const HEARTBEAT_MS = 8000;
+  const RECLAIM_MS = 20000;
+  let lastHeartbeatAt = 0;
+  let lastHolderSeenAt = Date.now();
 
   let lastAnnounceAt = 0;
   // 告诉另一边“遥控器在我这”：对方如果也是房主（例如页面重开后两边都回到了原来的身份）就让出来
@@ -139,22 +176,25 @@
     if (!ext || !inRole("Member") || typeof ext.setRole !== "function") return;
     const now = Date.now();
     lastTakeoverAt = now;
-    ext.setRole(ext.RoleEnum.Master);
+    setVtRole(ext, "master", now);
     announce(ext, now);
     kick(ext); // 立刻把自己的播放状态传上去，不等 2 秒周期
     controls.push({ a: action, by: "me" });
     if (controls.length > 20) controls.shift();
   };
 
-  // 对方接过了遥控器：自己切成成员跟随
+  // 对方接过了遥控器（takeover），或对方说遥控器在它那（holder）：自己切成成员跟随
   const yieldTo = (action) => {
+    lastHolderSeenAt = Date.now();
     const ext = extension();
     if (!ext || !inRole("Master") || typeof ext.setRole !== "function") return;
-    // 两边几乎同时动手：后动手的为准，这边更晚就继续当房主，对方收到这边的消息会让出来
-    if (lastTakeoverAt && (Number(action.at) || 0) < lastTakeoverAt) return;
+    // 两边都是房主：后接管的为准；一样早（例如都还没人动过）就由加入者让出来
+    const at = Number(action.at) || 0;
+    if (at < lastTakeoverAt) return;
+    if (at === lastTakeoverAt && config && config.role === "master") return;
     // 两边本来就在同一个视频：记下对方的地址，跟随时不用重新打开页面；对方换了视频则会被带过去
     if (typeof action.u === "string" && typeof location !== "undefined" && pageKey(action.u) === pageKey(location.href)) ext.url = action.u;
-    ext.setRole(ext.RoleEnum.Member);
+    setVtRole(ext, "member", lastTakeoverAt);
     // 让出遥控器后，接下来播放器的变化都是在跟随对方，不能再当成自己的操作（否则会立刻抢回来）
     gestureAt = 0;
     try { const store = storage(); if (store) store.setItem("oh-theater-gesture", "0"); } catch {}
@@ -166,6 +206,7 @@
     const video = event.target;
     if (!video || (video.tagName !== "VIDEO" && video.tagName !== "BWP-VIDEO")) return;
     if (Date.now() - gestureAt > GESTURE_MS) return; // 不是人点出来的
+    if (causedBySync(event.type, video)) return; // VideoTogether 在同步这边
     if (typeof location === "undefined" || !isVideoPage(location.href)) return;
     // 页面上的预览小视频不算（正片以外的短视频）
     const main = videoOf(extension());
@@ -176,6 +217,7 @@
       const ext = extension();
       const now = Date.now();
       lastTakeoverAt = now;
+      writeHolder("master", now);
       if (now - lastAnnounceAt > 1000) announce(ext, now);
       kick(ext);
     }
@@ -226,7 +268,7 @@
     if (msg.startsWith(CTRL)) {
       let action = null;
       try { action = JSON.parse(msg.slice(CTRL.length)); } catch {}
-      if (action && action.a === "takeover") yieldTo(action);
+      if (action && (action.a === "takeover" || action.a === "holder")) yieldTo(action);
       return;
     }
     queue.push({ msg, at: Date.now() });
@@ -239,6 +281,40 @@
     if (!ext.__ohSilenced) {
       ext.gotTextMsg = async () => {};
       ext.__ohSilenced = true;
+    }
+    // 记下 VideoTogether 这次要把播放器同步成什么样（见 causedBySync）
+    if (!ext.__ohSyncWrapped && typeof ext.SyncMemberVideo === "function") {
+      const original = ext.SyncMemberVideo;
+      ext.SyncMemberVideo = function (data, video) {
+        const room = data && data.room;
+        if (room) syncTarget = { at: Date.now(), paused: room.paused === true, loading: Boolean(room.waitForLoadding && !room.paused), time: roomTime(this, room) };
+        return original.call(this, data, video);
+      };
+      ext.__ohSyncWrapped = true;
+    }
+  };
+
+  // 遥控器的身份以本标签页记的为准；房主定时报一声；成员太久没听到房主就由创建者收回
+  const keepRemote = () => {
+    const ext = extension();
+    if (!ext || !config || typeof ext.setRole !== "function" || !(inRole("Member") || inRole("Master"))) return;
+    const holder = readHolder();
+    if (!holder) { writeHolder(inRole("Master") ? "master" : "member", lastTakeoverAt); return; }
+    const wanted = holder.role === "master" ? ext.RoleEnum.Master : ext.RoleEnum.Member;
+    if (ext.role !== wanted) ext.setRole(wanted);
+    const now = Date.now();
+    if (inRole("Master")) {
+      lastHolderSeenAt = now;
+      if (now - lastHeartbeatAt > HEARTBEAT_MS) {
+        lastHeartbeatAt = now;
+        sendRaw(CTRL + JSON.stringify({ a: "holder", at: lastTakeoverAt }));
+      }
+    } else if (config.role === "master" && (Number(ext.ctxMemberCount) || 0) >= 2 && now - lastHolderSeenAt > RECLAIM_MS) {
+      lastTakeoverAt = now;
+      lastHolderSeenAt = now;
+      setVtRole(ext, "master", now);
+      announce(ext, now);
+      kick(ext);
     }
   };
 
@@ -256,15 +332,21 @@
     const ext = extension();
     if (!ext || !config) return;
     silence(ext);
-    const { Null, Master, Member } = ext.RoleEnum;
-    const wanted = config.role === "master" ? Master : Member;
+    const { Null, Master } = ext.RoleEnum;
     if (ext.role !== Null && ext.roomName === config.name) return;
     if (Date.now() - lastJoinAt < 2000) return;
     lastJoinAt = Date.now();
+    // 页面刷新后按本标签页记的身份回到房间（遥控器可能已经换过手）
+    const holder = readHolder();
+    if (holder) lastTakeoverAt = Number(holder.at) || 0;
     try {
       if (ext.role !== Null) ext.exitRoom();
-      if (wanted === Master) ext.CreateRoom(config.name, config.password);
-      else ext.JoinRoom(config.name, config.password);
+      if (!holder && config.role === "master") ext.CreateRoom(config.name, config.password);
+      else {
+        // 以成员身份进房，再切成该有的身份：不用 CreateRoom，免得把房间进度重置成 0
+        ext.JoinRoom(config.name, config.password);
+        if (holder && holder.role === "master" && typeof ext.setRole === "function") ext.setRole(Master);
+      }
       kick(ext);
     } catch (error) {
       console.error("[oh-theater] join failed", error);
@@ -290,6 +372,7 @@
     drain() {
       const ext = extension();
       silence(ext);
+      keepRemote();
       checkPage();
       // 小银幕只在视频页把播放器铺满；首页 / 搜索页照常显示（首页的预览小视频不会被当成正片放大成黑屏）
       if (typeof location !== "undefined") mark("oh-video", isVideoPage(location.href));

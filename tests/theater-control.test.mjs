@@ -19,11 +19,10 @@ const FakeDate = class extends Date {
 };
 
 /** 一边的 B站页面：真实结构的假播放器 + 按真实规则工作的假 VideoTogether + 桥。 */
-function side(name, role, href, server) {
+function side(name, role, href, server, { store = new Map(), vtRole } = {}) {
   const listeners = new Map();
   const docListeners = new Map();
   const sent = [];
-  const store = new Map();
   const location = { href };
   const window = {
     addEventListener(type, callback) { listeners.set(type, [...(listeners.get(type) ?? []), callback]); },
@@ -50,12 +49,12 @@ function side(name, role, href, server) {
   const credentials = roomCredentials("K7Q2MX");
   const extension = {
     RoleEnum: { Null: 1, Master: MASTER, Member: MEMBER },
-    role: role === "master" ? MASTER : MEMBER,
+    role: vtRole ?? (role === "master" ? MASTER : MEMBER),
     roomName: credentials.name,
     ctxMemberCount: 2,
     url: href,
     gotTextMsg() {},
-    CreateRoom() {}, JoinRoom() {}, exitRoom() {},
+    CreateRoom() { this.role = MASTER; }, JoinRoom() { this.role = MEMBER; }, exitRoom() { this.role = 1; },
     setRole(next) { this.role = next; },
     linkWithoutState: (link) => String(link),
     // 和真实的 VideoTogether 一样：返回的是视频记录（id、时长），不是元素本身
@@ -120,7 +119,7 @@ async function pair() {
     for (const one of [a, b].sort((x) => (x.extension.role === MASTER ? -1 : 1))) one.extension.ScheduledTask();
   };
   tick();
-  return { a, b, server, relay, tick };
+  return { a, b, server, relay, tick, url };
 }
 
 const isMaster = (one) => one.extension.role === MASTER;
@@ -227,4 +226,49 @@ test("only takeover messages are acted on, and the chat box cannot forge them", 
   assert.ok(isMaster(a));
   assert.deepEqual(a.drain().messages, [], "控制消息不会显示成聊天气泡");
   assert.equal(b.api.send(`${CTRL}{"a":"takeover"}`), false);
+});
+
+test("clicking the follower's window while it is being synced does not steal the remote", async () => {
+  const { a, b, relay, tick } = await pair();
+  b.user(() => { b.video.currentTime = 500; });
+  relay();
+  assert.ok(isMaster(b) && !isMaster(a));
+  // 切到左边窗口点了一下（获得焦点），刚好赶上 VideoTogether 把它同步到 500 秒
+  b.video._time = 900; tick();
+  a.user(() => tick());
+  assert.ok(isMaster(b) && !isMaster(a), "同步造成的跳转不算左边动手");
+  assert.deepEqual(a.sent, []);
+});
+
+test("a full page reload keeps who holds the remote even if VideoTogether forgot", async () => {
+  const { a, b, server, relay, tick, url } = await pair();
+  b.user(() => { b.video.currentTime = 500; });
+  relay(); tick();
+  // 观众那边整页刷新：VideoTogether 没能恢复身份（超过 60 秒），桥按本标签页的记录回到房主
+  const reloaded = side("B", "member", url, server, { store: b.store, vtRole: 1 });
+  reloaded.drain();
+  assert.equal(reloaded.extension.role, MASTER, "刷新后仍然是房主");
+  // VideoTogether 自己恢复错了身份：下一次 drain 纠正
+  reloaded.extension.setRole(MEMBER);
+  reloaded.drain();
+  assert.equal(reloaded.extension.role, MASTER);
+  assert.ok(!isMaster(a));
+});
+
+test("two hosts sort themselves out from the periodic check; two followers get rescued by the creator", async () => {
+  const { a, b, relay } = await pair();
+  // 两边都以为自己是房主（谁都没动过）：加入者让出来
+  b.extension.setRole(MASTER);
+  clockMs += 9000;
+  a.drain(); b.drain();
+  relay();
+  assert.ok(isMaster(a) && !isMaster(b));
+  // 两边都成了成员（消息丢了）：20 秒没听到房主，创建者自己收回
+  a.extension.setRole(MEMBER);
+  a.store.set("oh-theater-holder", JSON.stringify({ room: roomCredentials("K7Q2MX").name, role: "member", at: 0 }));
+  clockMs += 21000;
+  a.drain(); b.drain();
+  assert.ok(isMaster(a), "创建者收回遥控器");
+  relay();
+  assert.ok(!isMaster(b));
 });
