@@ -20,7 +20,7 @@ export const SPRITES = {
   room: { src: "/theater/room.webp", ...box(0, 0, STAGE_W, STAGE_H) },
   dollLeft: { src: "/theater/doll-left.webp", ...box(558, 579, 210, 163) },
   armLeft: { src: "/theater/arm-left.webp", ...box(706, 680, 90, 65) },
-  armRight: { src: "/theater/arm-right.webp", ...box(784, 684, 76, 59) },
+  armRight: { src: "/theater/arm-right.webp", ...box(782, 683, 88, 69) },
   heart: { src: "/theater/heart.webp", ...box(737, 570, 109, 109) },
   seatRightEmpty: { src: "/theater/seat-right-empty.webp", ...box(791, 584, 233, 163) },
 } as const;

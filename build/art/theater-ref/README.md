@@ -11,7 +11,7 @@ python3 -c "from PIL import Image; Image.open('build/art/theater-ref/reference.w
 python3 build/art/theater-ref/plate_ui.py      # 去掉票根、按钮、预览控制面板、聊天条 → step1.png
 python3 build/art/theater-ref/segment.py       # 分出两只玩偶、牵着的手臂、爱心 → mask-dolls.png
 mkdir -p out && python3 build/art/theater-ref/build_assets.py   # 干净房间 + 玩偶 / 手臂 / 爱心小图 → out/
-python3 build/art/theater-ref/empty_right.py   # 右边空座位小图；顺便清掉两椅之间的残影（覆盖 out/room.png）
+cp out/arm-right.png out/arm-right-base.png && python3 build/art/theater-ref/empty_right.py   # 右边空座位；白色玩偶左侧重新长出干净的毛边、清掉手臂接缝和阴影、两椅之间的残影（覆盖 out/room.png、out/arm-right.png）
 python3 build/art/theater-ref/compose.py       # 拼回去和参考图对比（平均差异约 4/255）
 ```
 

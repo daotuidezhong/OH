@@ -56,7 +56,14 @@ seat = dilate(right, 15) & ~protect & (yy < 760)
 streak = (xx >= 730) & (xx <= 848) & (yy >= 718) & (yy <= 737) & ~below_chair & (lum > 50)
 streak &= ~((xx >= 774) & (xx <= 810) & (yy >= 730))
 streak = dilate(streak, 5) & ~below_chair & (yy <= 738) & ~((xx >= 774) & (xx <= 810) & (yy >= 730))
-fill = seat | streak
+# 白色玩偶身体左侧（原图伸出手臂的地方）：手臂擦掉后要重新长出一条干净的毛边。
+# 照右侧真实的毛边：两只耳机罩外缘对称轴 x ≈ 923.5，右侧身体边缘 x ≈ 995→992，镜像过来左边缘约 850→859，
+# 从耳机罩底部往下略向外收到椅背。边缘右侧本来就是身体 / 手臂交界处的毛（原图像素），左侧换成补好的墙面。
+EDGE_Y0, EDGE_Y1 = 687, 750
+rows = np.arange(h)
+edge_x = 850 + (rows - EDGE_Y0) * 0.15 + np.round(0.6 * np.sin(rows * 1.3) + 0.5 * np.sin(rows * 0.47))
+edge_zone = (yy >= EDGE_Y0) & (yy < EDGE_Y1) & (xx >= 826) & (xx < edge_x[:, None] + 3) & ~art_velvet
+fill = seat | streak | edge_zone
 
 valid = ~dilate(fill, 3) & ~protect & (lum > 22) & (lum < 105) & ~velvet & ~(b > r + 5) & (yy > 540) & (yy < 770)
 valid &= ~dilate((lum > 120), 5)
@@ -83,6 +90,50 @@ def blend(region, sigma=1.4):
 # 残影直接修进房间图
 a_streak = blend(streak)[..., None]
 fixed = plate * (1 - a_streak) + filled * a_streak
+# 白色玩偶左侧毛边：边缘左边是墙，右边是原图的毛；边缘 1 像素稍暗（和右侧真实毛边一样），不画深色描边
+art_f = art.astype(np.float32)
+fur = (yy >= EDGE_Y0) & (yy < EDGE_Y1) & (xx >= edge_x[:, None]) & (xx < 885) & ~art_velvet
+wall_side = (yy >= EDGE_Y0) & (yy < EDGE_Y1) & (xx >= 826) & (xx < edge_x[:, None]) & ~art_velvet
+# 耳机罩底部那几行：原图里罩子本身就在这里，保持原样
+cup_bottom = ((xx - 852) / 24.0) ** 2 + ((yy - 663) / 31.0) ** 2 < 1
+fur &= ~cup_bottom
+wall_side &= ~cup_bottom
+first = fur & ~np.roll(fur, 1, axis=1)
+second = fur & np.roll(first, 1, axis=1)
+body = art_f.copy()
+body[first] *= 0.86
+body[second] *= 0.95
+fixed = np.where(fur[..., None], body, fixed)
+soft_wall = cv2.GaussianBlur(wall_side.astype(np.float32), (0, 0), 0.8)[..., None] * (~fur)[..., None]
+fixed = fixed * (1 - soft_wall) + filled * soft_wall
+# 手臂留下的痕迹：耳机罩下方手臂和身体的接缝（一道深色斜线），身体底部手臂投下的灰紫阴影。
+# 手臂已经不在，这些地方本来都是毛：用周围的毛补（Telea 修补，半径小，只在毛里取色）
+fb, fg, fr = fixed[..., 0], fixed[..., 1], fixed[..., 2]
+flum = (fb + fg + fr) / 3
+zone = fur & (xx >= 852) & (xx < 895) & (yy >= 684) & (yy < 738) & ~dilate(art_velvet, 3) & ~dilate(cup_bottom, 3)
+marks = zone & ((flum < 138) | (fb > fr - 60))
+# 耳机罩下方那道接缝斜线：(858,694) → (870,685)
+px, py = xx - 858.0, yy - 694.0
+t = np.clip((px * 12 - py * 9) / (12 * 12 + 9 * 9), 0, 1)
+seam = np.hypot(px - 12 * t, py + 9 * t) < 1.6
+cup_px = (ab > ar - 20)
+seam_zone = fur & (yy >= 680) & (yy < 700) & ~dilate(cup_px, 3)
+marks = dilate(marks, 3) & zone | (dilate(seam, 3) & seam_zone)
+zone = zone | seam_zone
+fixed8 = np.clip(fixed, 0, 255).astype(np.uint8)
+# 修补时把墙和丝绒当成“未知”之外的已知色会被拉进来：先把区域外的非毛像素临时涂成毛色
+guide = fixed8.copy()
+fur_mean = fixed8[zone & ~marks].mean(axis=0)
+guide[~fur & dilate(zone, 9)] = fur_mean.astype(np.uint8)
+patched = cv2.inpaint(guide, (marks * 255).astype(np.uint8), 3, cv2.INPAINT_TELEA).astype(np.float32)
+# 补上一点毛的细纹理
+fur_patch = fixed[700:720, 870:900]
+fur_tex = fur_patch - cv2.GaussianBlur(fur_patch, (0, 0), 2)
+tex = np.tile(fur_tex, (h // 20 + 1, w // 30 + 1, 1))[:h, :w]
+patched = np.clip(patched + tex * 0.9, 0, 255)
+a_marks = cv2.GaussianBlur(marks.astype(np.float32), (0, 0), 0.9)[..., None] * zone[..., None]
+fixed = fixed * (1 - a_marks) + patched * a_marks
+print("marks", int(marks.sum()))
 room[..., :3] = np.clip(fixed, 0, 255).astype(np.uint8)
 cv2.imwrite("out/room.png", room)
 
@@ -99,3 +150,24 @@ layout = json.load(open("out/layout.json"))
 layout["seat-right-empty"] = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
 json.dump(layout, open("out/layout.json", "w"), indent=2)
 print(layout["seat-right-empty"])
+
+# 牵手时的右臂小图：往身体里多带一段原图像素（到 x = 874），盖过上面新长出来的毛边，接合处不露线
+base_arm = cv2.imread("out/arm-right-base.png", cv2.IMREAD_UNCHANGED)
+bx, by, bw, bh = json.load(open("out/layout.json"))["arm-right-base"] if "arm-right-base" in json.load(open("out/layout.json")) else (784, 684, 76, 59)
+alpha = np.zeros((h, w), np.float32)
+alpha[by:by + bh, bx:bx + bw] = base_arm[..., 3] / 255.0
+cover = (yy >= EDGE_Y0 - 2) & (yy < EDGE_Y1) & (xx >= bx) & (xx < 874) & ~art_velvet & ~(ab > ar - 20)
+cover &= dilate(alpha > 0.5, 25)
+cover_a = cv2.GaussianBlur(cover.astype(np.float32), (0, 0), 1.2)
+cover_a = np.where(xx < 874, np.where(cover, 1.0, cover_a * (xx < 870)), 0) * ~art_velvet
+alpha = np.maximum(alpha, cover_a.astype(np.float32))
+ys, xs = np.where(alpha > 0.02)
+x0, y0, x1, y1 = xs.min(), ys.min(), xs.max() + 1, ys.max() + 1
+rgba = cv2.cvtColor(art[y0:y1, x0:x1], cv2.COLOR_BGR2BGRA)
+rgba[..., 3] = np.clip(alpha[y0:y1, x0:x1] * 255, 0, 255).astype(np.uint8)
+cv2.imwrite("out/arm-right.png", rgba)
+layout = json.load(open("out/layout.json"))
+layout.setdefault("arm-right-base", [int(bx), int(by), int(bw), int(bh)])
+layout["arm-right"] = [int(x0), int(y0), int(x1 - x0), int(y1 - y0)]
+json.dump(layout, open("out/layout.json", "w"), indent=2)
+print("arm-right", layout["arm-right"])
