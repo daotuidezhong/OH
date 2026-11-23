@@ -67,7 +67,10 @@ test("bridge creates or joins the shared room exactly once and silences VideoTog
   member.api.configure({ ...credentials, role: "member" });
   assert.deepEqual(member.calls, [["join", credentials.name, credentials.password]]);
   member.extension.ctxMemberCount = 2;
-  assert.deepEqual({ ...member.api.drain(), messages: [], events: [] }, { role: "member", inRoom: true, members: 2, line: "国内线路", hasVideo: true, messages: [], events: [] });
+  const { diag, ...drained } = member.api.drain();
+  assert.deepEqual({ ...drained, messages: [], events: [] }, { role: "member", inRoom: true, members: 2, line: "国内线路", hasVideo: true, messages: [], events: [] });
+  assert.equal(diag.role, "成员");
+  assert.equal(diag.room, credentials.name);
 });
 
 test("bridge relays partner messages, hides its own echoes, and sends through VideoTogether", () => {
