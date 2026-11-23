@@ -68,16 +68,34 @@ button, input { font: inherit; }
 .empty-seat { position: absolute; z-index: 7; margin: 0; transform: translate(-50%, -50%); padding: calc(var(--u) * 3) calc(var(--u) * 10); border: calc(var(--u) * 1) dashed rgba(255, 220, 200, .5); border-radius: calc(var(--u) * 8); background: rgba(30, 10, 12, .5); color: rgba(255, 228, 210, .78); font-size: calc(var(--u) * 12); white-space: nowrap; pointer-events: none; }
 
 /* ---------- 票根（参考图左上） ---------- */
-.ticket { position: absolute; z-index: 10; display: grid; grid-template-columns: auto 1fr; grid-template-rows: auto auto auto; align-items: center; column-gap: calc(var(--u) * 10); padding: calc(var(--u) * 9) calc(var(--u) * 16) calc(var(--u) * 8); border: calc(var(--u) * 1) solid #e8c1ae; border-radius: calc(var(--u) * 10); background: linear-gradient(180deg, #fdeee4, #f5d6c6); color: var(--th-ink); box-shadow: 0 calc(var(--u) * 4) calc(var(--u) * 14) rgba(20, 4, 10, .4); }
-.ticket::before, .ticket::after { content: ""; position: absolute; top: 50%; width: calc(var(--u) * 12); height: calc(var(--u) * 12); border-radius: 50%; transform: translateY(-50%); }
-.ticket::before { left: calc(var(--u) * -6); background: #d0645f; }
-.ticket::after { right: calc(var(--u) * -6); background: #c98e64; }
-.ticket-label { grid-column: 1 / -1; justify-self: start; padding: calc(var(--u) * 1) calc(var(--u) * 7); border-radius: calc(var(--u) * 6); background: #b5395a; color: #fff; font-size: calc(var(--u) * 10); font-weight: 700; letter-spacing: .08em; }
-.ticket-code { padding: 0; border: 0; background: none; color: var(--th-wine); font-size: calc(var(--u) * 22); font-weight: 800; letter-spacing: .1em; cursor: pointer; white-space: nowrap; }
-.ticket-status { display: inline-flex; align-items: center; gap: calc(var(--u) * 5); color: #7a4a3a; font-size: calc(var(--u) * 13); font-weight: 700; white-space: nowrap; }
-.ticket-status i { width: calc(var(--u) * 9); height: calc(var(--u) * 9); border-radius: 50%; background: #b9a6a0; }
+/* 票根：主票 + 撕口副券。缺口用 mask 挖出来，阴影加在外层（drop-shadow 跟着缺口走） */
+.ticket-wrap { position: absolute; z-index: 10; filter: drop-shadow(0 calc(var(--u) * 4) calc(var(--u) * 7) rgba(20, 4, 10, .45)) drop-shadow(0 calc(var(--u) * 1) calc(var(--u) * 1) rgba(60, 14, 20, .35)); }
+.ticket { --stub: calc(var(--u) * 58); --notch: calc(var(--u) * 7); position: relative; display: grid; grid-template-columns: 1fr var(--stub); width: 100%; height: 100%; border-radius: calc(var(--u) * 8); color: var(--th-ink);
+  background:
+    radial-gradient(circle at calc(var(--u) * 8) calc(var(--u) * 8), rgba(255, 255, 255, .55), transparent calc(var(--u) * 40)),
+    repeating-linear-gradient(115deg, rgba(181, 57, 90, .035) 0 calc(var(--u) * 2), transparent calc(var(--u) * 2) calc(var(--u) * 5)),
+    linear-gradient(180deg, #fff3ea 0%, #fbe3d4 55%, #f3cfbd 100%);
+  -webkit-mask: radial-gradient(circle at calc(100% - var(--stub)) 0, transparent var(--notch), #000 calc(var(--notch) + .5px)) top / 100% 51% no-repeat, radial-gradient(circle at calc(100% - var(--stub)) 100%, transparent var(--notch), #000 calc(var(--notch) + .5px)) bottom / 100% 51% no-repeat;
+          mask: radial-gradient(circle at calc(100% - var(--stub)) 0, transparent var(--notch), #000 calc(var(--notch) + .5px)) top / 100% 51% no-repeat, radial-gradient(circle at calc(100% - var(--stub)) 100%, transparent var(--notch), #000 calc(var(--notch) + .5px)) bottom / 100% 51% no-repeat; }
+/* 内圈细边框 + 撕口虚线 */
+.ticket::before { content: ""; position: absolute; inset: calc(var(--u) * 4); border: calc(var(--u) * 1) solid rgba(181, 57, 90, .28); border-radius: calc(var(--u) * 5); pointer-events: none; }
+.ticket::after { content: ""; position: absolute; top: calc(var(--notch) + var(--u) * 3); bottom: calc(var(--notch) + var(--u) * 3); right: var(--stub); width: 0; border-left: calc(var(--u) * 1.5) dashed rgba(122, 52, 58, .45); pointer-events: none; }
+.ticket-main { display: flex; flex-direction: column; justify-content: center; gap: calc(var(--u) * 3); min-width: 0; padding: calc(var(--u) * 6) calc(var(--u) * 10) calc(var(--u) * 6) calc(var(--u) * 13); }
+.ticket-label { display: flex; align-items: baseline; gap: calc(var(--u) * 6); white-space: nowrap; }
+.ticket-label b { padding: calc(var(--u) * 1) calc(var(--u) * 6); border-radius: calc(var(--u) * 3); background: linear-gradient(180deg, #c5466a, #a3304f); color: #fff; font-size: calc(var(--u) * 10); letter-spacing: .12em; box-shadow: inset 0 calc(var(--u) * -1) 0 rgba(0, 0, 0, .18); }
+.ticket-label small { overflow: hidden; color: #b06a64; font-size: calc(var(--u) * 8.5); font-weight: 700; letter-spacing: .22em; text-overflow: ellipsis; }
+.ticket-code { align-self: flex-start; padding: 0; border: 0; background: none; color: var(--th-wine); font-family: "SFMono-Regular", Consolas, "Courier New", monospace; font-size: calc(var(--u) * 21); font-weight: 800; line-height: 1.05; letter-spacing: .08em; text-shadow: 0 calc(var(--u) * 1) 0 rgba(255, 255, 255, .7); cursor: pointer; white-space: nowrap; }
+.ticket-code:hover { color: #b5395a; }
+.ticket-status { display: flex; align-items: center; gap: calc(var(--u) * 5); min-width: 0; color: #7a4a3a; font-size: calc(var(--u) * 11.5); font-weight: 700; white-space: nowrap; }
+.ticket-status > span { overflow: hidden; text-overflow: ellipsis; }
+.ticket-status i { flex: none; width: calc(var(--u) * 8); height: calc(var(--u) * 8); border-radius: 50%; background: #b9a6a0; box-shadow: inset 0 calc(var(--u) * -1) 0 rgba(0, 0, 0, .15); }
 .ticket-status.online i { background: #5fd38a; box-shadow: 0 0 calc(var(--u) * 6) #5fd38a; }
-.ticket-change { grid-column: 2; justify-self: end; padding: calc(var(--u) * 1) calc(var(--u) * 9); border: calc(var(--u) * 1.5) solid #b5395a; border-radius: calc(var(--u) * 8); background: rgba(255, 255, 255, .35); color: var(--th-wine); font-size: calc(var(--u) * 12); font-weight: 700; cursor: pointer; }
+.ticket-stub { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: calc(var(--u) * 1); padding: calc(var(--u) * 6) calc(var(--u) * 4); background: linear-gradient(180deg, rgba(197, 70, 106, .1), rgba(197, 70, 106, .18)); }
+.ticket-admit { color: #a3304f; font-size: calc(var(--u) * 8); font-weight: 800; letter-spacing: .2em; }
+.ticket-count { color: var(--th-wine); font-family: Georgia, "Times New Roman", serif; font-size: calc(var(--u) * 24); line-height: 1; }
+.ticket-seat { color: #7a4a3a; font-size: calc(var(--u) * 9); font-weight: 700; }
+.ticket-change { margin-top: calc(var(--u) * 2); padding: calc(var(--u) * 1) calc(var(--u) * 7); border: calc(var(--u) * 1) solid rgba(163, 48, 79, .7); border-radius: calc(var(--u) * 999); background: rgba(255, 255, 255, .5); color: var(--th-wine); font-size: calc(var(--u) * 9.5); font-weight: 700; cursor: pointer; }
+.ticket-change:hover { background: #fff; }
 
 /* ---------- 右上按钮 ---------- */
 .screen-controls { position: absolute; z-index: 10; display: grid; grid-auto-rows: 1fr; gap: calc(var(--u) * 10); }
@@ -103,7 +121,7 @@ button, input { font: inherit; }
 
 /* 放大银幕：B站视图铺满顶部工具条以下的整个窗口 */
 .is-enlarged .screen-surface { position: fixed; inset: 48px 0 0 0 !important; width: auto !important; height: auto !important; z-index: 30; }
-.is-enlarged .ticket, .is-enlarged .screen-controls, .is-enlarged .chat-bar, .is-enlarged .bubble-stack { visibility: hidden; }
+.is-enlarged .ticket-wrap, .is-enlarged .screen-controls, .is-enlarged .chat-bar, .is-enlarged .bubble-stack { visibility: hidden; }
 .enlarged-bar { position: fixed; inset: 0 0 auto; z-index: 40; height: 48px; display: flex; align-items: center; gap: 8px; padding: 0 12px; background: linear-gradient(180deg, #3a1418, #220a0e); border-bottom: 2px solid #5a2228; }
 .enlarged-bar button { height: 32px; padding: 0 12px; border: 1px solid rgba(255, 220, 190, .25); border-radius: 9px; background: rgba(255, 240, 220, .08); color: var(--th-paper); cursor: pointer; }
 .enlarged-bar button:hover:not(:disabled) { background: rgba(255, 240, 220, .16); }

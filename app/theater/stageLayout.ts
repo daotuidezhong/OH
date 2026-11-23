@@ -10,15 +10,20 @@ const box = (x: number, y: number, w: number, h: number): Box => ({ x, y, w, h }
 /** 银幕内框：B站画面贴在这里（房间图在这里是透明的）。 */
 export const SCREEN = box(432, 100, 703, 401);
 
+/**
+ * 房间图里已经有白色戴耳机的玩偶（我，一直在场）；粉色玩偶（TA）、牵手的两条手臂、爱心是叠上去的小图，
+ * 每张都连同周围一圈原图像素切出来，叠上去与参考图完全一致。
+ */
 export const SPRITES = {
   room: { src: "/theater/room.webp", ...box(0, 0, STAGE_W, STAGE_H) },
-  dollLeft: { src: "/theater/doll-left.webp", ...box(563, 584, 200, 152) },
-  dollRight: { src: "/theater/doll-right.webp", ...box(829, 591, 188, 150) },
-  dollRightRest: { src: "/theater/doll-right-rest.webp", ...box(829, 591, 188, 150) },
-  armLeft: { src: "/theater/arm-left.webp", ...box(710, 684, 82, 57) },
-  armRight: { src: "/theater/arm-right.webp", ...box(788, 690, 64, 49) },
-  heart: { src: "/theater/heart.webp", ...box(732, 574, 118, 102) },
+  dollLeft: { src: "/theater/doll-left.webp", ...box(558, 579, 210, 163) },
+  armLeft: { src: "/theater/arm-left.webp", ...box(706, 680, 90, 65) },
+  armRight: { src: "/theater/arm-right.webp", ...box(784, 684, 76, 59) },
+  heart: { src: "/theater/heart.webp", ...box(737, 570, 109, 109) },
 } as const;
+
+/** 白色玩偶（我）在房间图里的位置。 */
+export const ME_DOLL = box(829, 591, 188, 150);
 
 /** 界面元素在参考图里的位置（票根、右上按钮、聊天条），尺寸随舞台一起缩放。 */
 export const UI = {

@@ -200,7 +200,6 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
         partner={partnerOnline}
         me={Boolean(config)}
         talkLeft={talking("left")}
-        talkRight={talking("right")}
         holding={holding}
         arriving={partnerOnline && now - arrivedAt < ARRIVE_MS}
         surfaceRef={surfaceRef}
@@ -217,11 +216,21 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
         {config && !partnerOnline && <p className="empty-seat" style={point(EMPTY_SEAT.x, EMPTY_SEAT.y)}>TA 的座位</p>}
 
         {config && (
-          <div className="ticket" style={place(UI.ticket)}>
-            <span className="ticket-label">放映厅{init?.testMode ? ` · 测试 ${init.label}` : ""}</span>
-            <button type="button" className="ticket-code" onClick={copyCode} title="复制放映厅码发给 TA">{copied ? "已复制" : formatRoomCode(config.code)}</button>
-            <span className={`ticket-status ${partnerOnline ? "online" : ""}`}><i />{seatStatus}</span>
-            {!init?.testMode && <button type="button" className="ticket-change" onClick={() => { if (window.confirm("更换放映厅后需要和 TA 重新配对，确定吗？")) saveConfig(null); }}>更换</button>}
+          <div className="ticket-wrap" style={place(UI.ticket)}>
+            <div className="ticket">
+              <div className="ticket-main">
+                <span className="ticket-label"><b>放映厅</b><small>{init?.testMode ? `测试 ${init.label}` : "OH CINEMA"}</small></span>
+                <button type="button" className="ticket-code" onClick={copyCode} title="复制放映厅码发给 TA">{copied ? "已复制" : formatRoomCode(config.code)}</button>
+                <span className={`ticket-status ${partnerOnline ? "online" : ""}`} title={seatStatus}><i /><span>{seatStatus}</span></span>
+              </div>
+              <div className="ticket-stub">
+                <span className="ticket-admit">ADMIT</span>
+                <b className="ticket-count">2</b>
+                {init?.testMode
+                  ? <span className="ticket-seat">双人座</span>
+                  : <button type="button" className="ticket-change" onClick={() => { if (window.confirm("更换放映厅后需要和 TA 重新配对，确定吗？")) saveConfig(null); }}>更换</button>}
+              </div>
+            </div>
           </div>
         )}
         {config && (

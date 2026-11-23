@@ -30,15 +30,12 @@ def frame(partner=True, holding=True):
     base = Image.new("RGBA", room.size, (20, 20, 30, 255))
     screen = art.crop(tuple(layout["screen"][:2]) + (layout["screen"][0] + layout["screen"][2], layout["screen"][1] + layout["screen"][3]))
     base.paste(screen, tuple(layout["screen"][:2]))
-    base.alpha_composite(room)
+    base.alpha_composite(room)          # 白色玩偶（我）就在房间图里
     if partner:
         paste(base, "doll-left")
-    paste(base, "doll-right")
-    # 不牵手时手臂收在身侧（被椅背挡住，不画）；牵手时从肩膀伸出来
-    if partner and holding:
+    if partner and holding:             # 不牵手时手臂收在身侧（不画）；牵手时伸出来
         paste(base, "arm-left")
         paste(base, "arm-right")
-    if partner and holding:
         paste(base, "heart")
     return base
 

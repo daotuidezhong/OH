@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { BUBBLE, EMPTY_SEAT, SCREEN, SPRITES, STAGE_H, STAGE_W, UI } from "../app/theater/stageLayout.ts";
+import { BUBBLE, EMPTY_SEAT, ME_DOLL, SCREEN, SPRITES, STAGE_H, STAGE_W, UI } from "../app/theater/stageLayout.ts";
 
 /** 读 WebP 文件头里的宽高（VP8X / VP8L / VP8）。 */
 async function webpSize(publicPath) {
@@ -28,7 +28,7 @@ test("every theater image matches its slot in the reference layout", async () =>
 test("screen hole is close to 16:9 and nothing on the seats overlaps it", () => {
   assert.ok(Math.abs(SCREEN.w / SCREEN.h - 16 / 9) < 0.03);
   const screenBottom = SCREEN.y + SCREEN.h;
-  for (const name of ["dollLeft", "dollRight", "dollRightRest", "armLeft", "armRight", "heart"]) {
+  for (const name of ["dollLeft", "armLeft", "armRight", "heart"]) {
     assert.ok(SPRITES[name].y > screenBottom, `${name} stays below the screen (Bilibili is drawn over it)`);
   }
   for (const side of ["left", "right"]) assert.ok(BUBBLE[side].y - 40 > screenBottom, `${side} bubble below the screen`);
@@ -36,13 +36,12 @@ test("screen hole is close to 16:9 and nothing on the seats overlaps it", () => 
 });
 
 test("hand-holding arms reach from each doll to the middle and meet", () => {
-  const { armLeft, armRight, dollLeft, dollRight, dollRightRest } = SPRITES;
-  // 左臂从粉色玩偶身上伸出、右臂从白色玩偶身上伸出，在中间相接
+  const { armLeft, armRight, dollLeft } = SPRITES;
+  // 左臂从粉色玩偶身上伸出、右臂从白色玩偶（画在房间图里）身上伸出，在中间相接
   assert.ok(armLeft.x >= dollLeft.x && armLeft.x < dollLeft.x + dollLeft.w);
-  assert.ok(armRight.x + armRight.w > dollRight.x && armRight.x + armRight.w <= dollRight.x + dollRight.w);
-  assert.ok(Math.abs(armLeft.x + armLeft.w - armRight.x) <= 6, "paws touch");
-  // 两种白色玩偶图（伸手 / 收手）放在同一个位置
-  assert.deepEqual([dollRight.x, dollRight.y, dollRight.w, dollRight.h], [dollRightRest.x, dollRightRest.y, dollRightRest.w, dollRightRest.h]);
+  assert.ok(armRight.x + armRight.w > ME_DOLL.x && armRight.x + armRight.w <= ME_DOLL.x + ME_DOLL.w);
+  // 两张小图各带一圈原图像素，所以会有少量重叠
+  assert.ok(armLeft.x + armLeft.w >= armRight.x && armLeft.x + armLeft.w - armRight.x <= 16, "paws touch");
 });
 
 test("controls sit where the reference puts them and do not cover the screen", () => {
