@@ -11,7 +11,7 @@
   const ROOM_DATA = 22;
   // 控制指令走聊天通道，前缀和牵手信号一样以不可见字符开头，不会显示成气泡
   const CTRL = "\u2063OH:CTRL:";
-  const HOLD_SYNC_MS = 4000;
+  const HOLD_SYNC_MS = 8000;
   const SEEK_TOLERANCE = 3;
   // 页面刚打开时 B站会自动播放、从观看历史的位置继续：这几秒里播放器的变化不算成员的操作
   const SETTLE_MS = 6000;
@@ -30,15 +30,27 @@
 
   const extension = () => window.videoTogetherExtension || null;
 
+  // 小银幕 / 视频页标记放在 <html> 的自定义属性上：B站会重写 <html> 的 class，属性不会被冲掉；
+  // 每次 drain 也会重新确认一遍。
+  const mark = (name, on) => {
+    const root = document.documentElement;
+    if (!root) return;
+    if (root.classList) root.classList.toggle(name, on);
+    const attribute = `data-${name}`;
+    if (typeof root.setAttribute !== "function") return;
+    if (on && !root.hasAttribute(attribute)) root.setAttribute(attribute, "");
+    if (!on && root.hasAttribute(attribute)) root.removeAttribute(attribute);
+  };
+
   // VideoTogether 自带的面板、提示条全部隐藏，界面交给放映厅场景。
   const style = document.createElement("style");
   style.id = "oh-theater-style";
   style.textContent = `
     #VideoTogetherWrapper, #videoTogetherLoading { display: none !important; }
-    html.oh-small.oh-video-page:has(video), html.oh-small.oh-video-page:has(video) body { overflow: hidden !important; background: #000 !important; }
-    html.oh-small.oh-video-page:has(video) *:has(video) { transform: none !important; filter: none !important; contain: none !important; will-change: auto !important; }
-    html.oh-small.oh-video-page video { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; z-index: 2147483646 !important; object-fit: contain !important; background: #000 !important; transform: none !important; }
-    html.oh-small, html.oh-small * { cursor: zoom-in !important; }
+    html[data-oh-small][data-oh-video]:has(video), html[data-oh-small][data-oh-video]:has(video) body { overflow: hidden !important; background: #000 !important; }
+    html[data-oh-small][data-oh-video]:has(video) *:has(video) { transform: none !important; filter: none !important; contain: none !important; will-change: auto !important; }
+    html[data-oh-small][data-oh-video] video { position: fixed !important; inset: 0 !important; width: 100vw !important; height: 100vh !important; max-width: none !important; max-height: none !important; margin: 0 !important; z-index: 2147483646 !important; object-fit: contain !important; background: #000 !important; transform: none !important; }
+    html[data-oh-small], html[data-oh-small] * { cursor: zoom-in !important; }
   `;
   (document.head || document.documentElement).appendChild(style);
 
@@ -106,11 +118,14 @@
   const sendCtrl = (action) => {
     const now = Date.now();
     // 同一个操作在短时间里重复触发（例如拖动时连着几次 seeked）只发一次
-    if (lastSent && lastSent.a === action.a && now - lastSent.at < 400 && Math.abs((lastSent.t || 0) - (action.t || 0)) < 0.5 && lastSent.u === action.u) return;
+    if (lastSent && lastSent.a === action.a && now - lastSent.at < 3000 && Math.abs((lastSent.t || 0) - (action.t || 0)) < 0.5 && lastSent.u === action.u) return;
     lastSent = { ...action, at: now };
     pendingCtrl = action;
     holdSyncUntil = now + HOLD_SYNC_MS;
     sendRaw(CTRL + JSON.stringify(action));
+    // 给自己这边一个提示：“已同步给 TA”
+    controls.push({ a: action.a, t: Number(action.t) || 0, by: "me" });
+    if (controls.length > 20) controls.shift();
   };
 
   // 房间状态已经变成成员要的样子：马上恢复同步
@@ -134,15 +149,20 @@
     if (typeof location === "undefined" || !isVideoPage(location.href) || video !== videoOf(extension())) return;
     if (Date.now() - loadedAt < SETTLE_MS) return;
     const room = lastRoom;
-    // 房主在等对方缓冲时，VideoTogether 会让成员暂停 / 播放，那不是成员自己的操作
-    if (room.waitForLoadding && !room.paused) return;
     const ext = extension();
     const t = Number(video.currentTime) || 0;
+    // 拖进度：一开始跳转（seeking）就判断，不等缓冲完；VideoTogether 自己把成员拉回时跳到的正是房间时间，不会误判。
+    // 拖完后成员要缓冲，房间会进入“等待加载”，所以拖进度不受下面那条限制。
+    if (event.type === "seeking" || event.type === "seeked") {
+      if (Math.abs(t - roomTime(ext, room)) > SEEK_TOLERANCE) sendCtrl({ a: "seek", t, paused: Boolean(video.paused) });
+      return;
+    }
+    // 房主在等对方缓冲时，VideoTogether 会让成员暂停 / 播放，那不是成员自己的操作
+    if (room.waitForLoadding && !room.paused) return;
     if (event.type === "pause" && !video.ended && room.paused === false) sendCtrl({ a: "pause", t });
     else if (event.type === "play" && room.paused === true) sendCtrl({ a: "play", t });
-    else if (event.type === "seeked" && Math.abs(t - roomTime(ext, room)) > SEEK_TOLERANCE) sendCtrl({ a: "seek", t, paused: Boolean(video.paused) });
   };
-  if (document.addEventListener) for (const type of ["play", "pause", "seeked"]) document.addEventListener(type, onMedia, true);
+  if (document.addEventListener) for (const type of ["play", "pause", "seeking", "seeked"]) document.addEventListener(type, onMedia, true);
 
   // 成员自己换了视频 / 分 P（不是被 VideoTogether 带过去的）：请房主也换过去。
   // 只在成员这边的页面发生变化时判断；房主换视频、成员被带走时，新页面就是房间里的页面，不会再发回去。
@@ -279,14 +299,15 @@
     },
     setSmall(next) {
       small = Boolean(next);
-      document.documentElement.classList.toggle("oh-small", small);
+      mark("oh-small", small);
     },
     drain() {
       const ext = extension();
       silence(ext);
       checkPage();
       // 小银幕只在视频页把播放器铺满；首页 / 搜索页照常显示（首页的预览小视频不会被当成正片放大成黑屏）
-      if (typeof location !== "undefined") document.documentElement.classList.toggle("oh-video-page", isVideoPage(location.href));
+      if (typeof location !== "undefined") mark("oh-video", isVideoPage(location.href));
+      mark("oh-small", small);
       // VideoTogether 自己的状态栏（面板已隐藏）：报红色错误时把原因带给场景
       let vtError = "";
       try {

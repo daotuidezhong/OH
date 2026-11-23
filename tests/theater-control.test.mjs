@@ -37,7 +37,8 @@ function side(role, href) {
     paused: true,
     _time: 0,
     get currentTime() { return this._time; },
-    set currentTime(value) { this._time = value; dispatch("seeked", this); },
+    // 和浏览器一样：设置 currentTime 先触发 seeking，缓冲好再触发 seeked
+    set currentTime(value) { this._time = value; dispatch("seeking", this); dispatch("seeked", this); },
     pause() { if (!this.paused) { this.paused = true; dispatch("pause", this); } },
     play() { if (this.paused) { this.paused = false; dispatch("play", this); } return Promise.resolve(); },
   };
@@ -129,7 +130,7 @@ test("the viewer pauses on their own player: the host follows and the viewer is 
   assert.deepEqual(master.drain().messages, [], "控制指令不会显示成聊天气泡");
   await net.tick();
   assert.equal(member.video.paused, true);
-  assert.deepEqual(member.drain().controls, [], "自己的操作不提示“TA 暂停了”");
+  assert.deepEqual(member.drain().controls.filter((item) => item.by !== "me"), [], "自己的操作不提示“TA 暂停了”");
   assert.deepEqual(member.sent, []);
 });
 
@@ -151,14 +152,29 @@ test("the viewer resumes and seeks; the host's own actions show up on the viewer
   assert.equal(master.video.paused, false);
   assert.deepEqual(master.drain().controls.map((item) => item.a), ["play", "seek"]);
   await net.tick();
-  assert.deepEqual(member.drain().controls, []);
+  assert.deepEqual(member.drain().controls.filter((item) => item.by !== "me"), []);
   // 房主自己暂停：成员被同步，并提示“TA 暂停了”
   clockMs += 1000;
   master.video.pause();
   await net.tick();
   assert.equal(member.video.paused, true);
-  assert.deepEqual(member.drain().controls.map((item) => item.a), ["pause"]);
+  assert.deepEqual(member.drain().controls.filter((item) => item.by !== "me").map((item) => item.a), ["pause"]);
   assert.deepEqual(member.sent, [], "被房主同步的暂停不会再发回去");
+});
+
+test("dragging the progress bar still counts while the room waits for the viewer to buffer", async () => {
+  const { master, member, net } = await pair();
+  clockMs += 1000;
+  // 成员拖进度后要缓冲，VideoTogether 会把房间标成“等待加载”
+  const room = { url: master.location.href, paused: false, currentTime: master.video.currentTime, lastUpdateClientTime: now(), playbackRate: 1, waitForLoadding: true };
+  member.window.postMessage({ source: "VideoTogether", type: 22, data: room });
+  member.video.currentTime = 1200;
+  assert.equal(member.sent.length, 1, "一开始跳转就发出，只发一次");
+  // 自己这边提示“已同步给 TA”
+  const mine = member.drain().controls.filter((item) => item.by === "me");
+  assert.deepEqual(mine.map((item) => item.a), ["seek"]);
+  net.relay();
+  assert.ok(Math.abs(master.video.currentTime - 1200) < 0.01);
 });
 
 test("the viewer opens another video: the host switches too, without bouncing back", async () => {

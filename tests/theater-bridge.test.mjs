@@ -29,7 +29,13 @@ function loadBridge() {
   };
   const document = {
     head: { appendChild() {} },
-    documentElement: { classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } } },
+    documentElement: {
+      classList: { toggle(name, on) { if (on) classes.add(name); else classes.delete(name); } },
+      attributes: new Set(),
+      hasAttribute(name) { return this.attributes.has(name); },
+      setAttribute(name) { this.attributes.add(name); },
+      removeAttribute(name) { this.attributes.delete(name); },
+    },
     createElement: () => ({}),
     querySelector: () => ({}),
   };
@@ -45,7 +51,7 @@ function loadBridge() {
   const raw = window.__ohTheater;
   // vm 沙箱里的数组原型不同，取出时转成普通值再比较。
   const api = { ...raw, drain: () => JSON.parse(JSON.stringify(raw.drain())) };
-  return { api, window, extension, calls, classes, fire };
+  return { api, window, extension, calls, classes, fire, document };
 }
 
 test("bridge creates or joins the shared room exactly once and silences VideoTogether speech", () => {
@@ -84,9 +90,14 @@ test("bridge relays partner messages, hides its own echoes, and sends through Vi
 });
 
 test("small screen swallows clicks and asks to enlarge; enlarged screen passes clicks through", () => {
-  const { api, classes, fire } = loadBridge();
+  const { api, classes, fire, document } = loadBridge();
   api.setSmall(true);
   assert.ok(classes.has("oh-small"));
+  assert.ok(document.documentElement.attributes.has("data-oh-small"), "小银幕标记放在属性上，B站重写 class 也不会丢");
+  // B站把 <html> 的 class / 属性冲掉：下一次 drain 补回来
+  document.documentElement.attributes.clear();
+  api.drain();
+  assert.ok(document.documentElement.attributes.has("data-oh-small"));
   assert.equal(fire("pointerdown"), true);
   assert.equal(fire("click"), true);
   assert.deepEqual(api.drain().events, [{ type: "enlarge" }]);
