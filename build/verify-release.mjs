@@ -8,7 +8,9 @@ import { gunzipSync } from "node:zlib";
 const { version } = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
 const directory = path.resolve(process.argv[2] ?? "release-assets");
 const installer = `Berry-Workout-Island-Setup-${version}.exe`;
-const artifacts = [installer, `${installer}.blockmap`, `OH-${version}-arm64.dmg`, `OH-${version}-x64.dmg`, "latest.yml"];
+// RELEASE_WINDOWS_ONLY=1：这一版只发 Windows（Mac 安装包下次再发），不要求 dmg，其余校验不变
+const windowsOnly = process.env.RELEASE_WINDOWS_ONLY === "1";
+const artifacts = [installer, `${installer}.blockmap`, ...(windowsOnly ? [] : [`OH-${version}-arm64.dmg`, `OH-${version}-x64.dmg`]), "latest.yml"];
 for (const artifact of artifacts) assert.ok((await stat(path.join(directory, artifact))).size > 0, `Empty release asset: ${artifact}`);
 
 const metadata = await readFile(path.join(directory, "latest.yml"), "utf8");

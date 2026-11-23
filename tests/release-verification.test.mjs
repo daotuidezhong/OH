@@ -50,6 +50,19 @@ test("release verification rejects incomplete or altered update assets before pu
       await writeFile(metadataFile, JSON.stringify({ ...release, assets: release.assets.map((asset, index) => index === 0 ? { ...asset, digest: "sha256:incorrect" } : asset) }));
       assert.notEqual(verify().status, 0);
     });
+    await t.test("windows-only release needs no dmg but still checks the Windows update files", async () => {
+      const windowsOnly = Object.entries(files).filter(([name]) => !name.endsWith(".dmg"));
+      await writeFile(metadataFile, JSON.stringify({ ...release, assets: release.assets.filter((asset) => !asset.name.endsWith(".dmg")) }));
+      const run = () => spawnSync(process.execPath, [verifier, directory, metadataFile], { encoding: "utf8", env: { ...process.env, RELEASE_WINDOWS_ONLY: "1" } });
+      const ok = run();
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.match(ok.stdout, new RegExp(`all ${windowsOnly.length} assets`));
+      // 没有这个开关时，缺 dmg 仍然不能发布
+      assert.notEqual(verify().status, 0);
+      await writeFile(join(directory, installer), Buffer.from("XX installer verification fixture"));
+      assert.notEqual(run().status, 0, "Windows 安装包被改动仍然拦下");
+      await writeFile(join(directory, installer), executable);
+    });
     await t.test("published releases cannot be overwritten", async () => {
       await writeFile(metadataFile, JSON.stringify({ ...release, draft: false }));
       assert.notEqual(verify().status, 0);

@@ -22,7 +22,8 @@ jobs:
     uses: ./.github/workflows/validate.yml
 
   build-macos:
-    if: github.event_name != 'workflow_dispatch' || inputs.release_run_id == ''
+    # 提交说明带 [windows-only] 的发布只打 Windows 包（Mac 下次再发）
+    if: (github.event_name != 'workflow_dispatch' || inputs.release_run_id == '') && !(github.event_name == 'push' && contains(github.event.head_commit.message, '[windows-only]'))
     runs-on: macos-15
     strategy:
       matrix:
@@ -66,7 +67,8 @@ jobs:
     if: >-
       always() &&
       ((github.event_name == 'push' && startsWith(github.event.head_commit.message, 'Publish v') &&
-        needs.validate-release.result == 'success' && needs.build-macos.result == 'success' && needs.build-windows.result == 'success') ||
+        needs.validate-release.result == 'success' && needs.build-windows.result == 'success' &&
+        (needs.build-macos.result == 'success' || (needs.build-macos.result == 'skipped' && contains(github.event.head_commit.message, '[windows-only]')))) ||
        (github.event_name == 'workflow_dispatch' && inputs.release_run_id != '' && inputs.release_commit != ''))
     needs: [validate-release, build-macos, build-windows]
     runs-on: ubuntu-latest
@@ -97,6 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_SHA: ${{ inputs.release_commit || github.sha }}
+          RELEASE_WINDOWS_ONLY: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[windows-only]') && '1' || '' }}
         run: |
           version=$(node -p "require('./package.json').version")
           node build/verify-release.mjs release-assets
