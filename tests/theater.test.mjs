@@ -86,6 +86,11 @@ test("theater hall rebuilt from the reference image: dolls, hold-hands, bubbles 
   assert.match(stage, /<Sprite sprite=\{SPRITES\.seatRightEmpty\} className=\{`seat-empty \$\{right \? "is-taken" : ""\}`\} \/>/);
   assert.match(css, /\.seat-empty\.is-taken \{ opacity: 0; \}/);
   assert.match(stage, /\{hold && <Sprite sprite=\{SPRITES\.armLeft\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.armRight\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.heart\}/);
+  // 舞台铺满窗口时被裁掉的部分，贴边的界面元素往里收，不会被切掉
+  assert.match(stage, /"--cut-x": `\$\{Math\.max\(0, -box\.left\)\}px`/);
+  assert.match(css, /\.ticket-wrap \{[^}]*margin: var\(--cut-y, 0px\) 0 0 var\(--cut-x, 0px\)/);
+  assert.match(css, /\.screen-controls \{[^}]*margin: var\(--cut-y, 0px\) 0 0 calc\(-1 \* var\(--cut-x, 0px\)\)/);
+  assert.match(css, /\.chat-bar \{[^}]*margin-top: calc\(-1 \* var\(--cut-y, 0px\)\)/);
   // 银幕在房间图下面，房间图不挡点击
   assert.match(stage, /className="screen-surface"[\s\S]*className="stage-room"/);
   assert.match(css, /\.stage-room \{[^}]*pointer-events: none/);

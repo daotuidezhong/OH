@@ -45,7 +45,14 @@ function Sprite({ sprite, className = "" }: { sprite: (typeof SPRITES)[keyof typ
 export function ReferenceStage({ left, right, talkLeft, holding, arriving, surfaceRef, screenChildren, children }: StageProps) {
   const box = useStageBox();
   const hold = holding && left && right;
-  const stageStyle = { left: box.left, top: box.top, width: box.width, height: box.height, "--u": `${box.width / STAGE_W}px` } as CSSProperties;
+  // 舞台铺满窗口，比例不同时左右或上下会裁掉一点；--cut-x / --cut-y 是每边被裁掉的宽度，
+  // 贴边的界面元素（票根、右上按钮、聊天条）往里收这么多，始终完整显示在窗口里
+  const stageStyle = {
+    left: box.left, top: box.top, width: box.width, height: box.height,
+    "--u": `${box.width / STAGE_W}px`,
+    "--cut-x": `${Math.max(0, -box.left)}px`,
+    "--cut-y": `${Math.max(0, -box.top)}px`,
+  } as CSSProperties;
 
   return (
     <div className={`reference-stage ${hold ? "is-holding" : ""}`} style={stageStyle}>

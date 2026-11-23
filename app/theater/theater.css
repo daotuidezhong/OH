@@ -71,7 +71,7 @@ button, input { font: inherit; }
 
 /* ---------- 票根（参考图左上） ---------- */
 /* 票根：主票 + 撕口副券。缺口用 mask 挖出来，阴影加在外层（drop-shadow 跟着缺口走） */
-.ticket-wrap { position: absolute; z-index: 10; filter: drop-shadow(0 calc(var(--u) * 4) calc(var(--u) * 7) rgba(20, 4, 10, .45)) drop-shadow(0 calc(var(--u) * 1) calc(var(--u) * 1) rgba(60, 14, 20, .35)); }
+.ticket-wrap { position: absolute; z-index: 10; margin: var(--cut-y, 0px) 0 0 var(--cut-x, 0px); filter: drop-shadow(0 calc(var(--u) * 4) calc(var(--u) * 7) rgba(20, 4, 10, .45)) drop-shadow(0 calc(var(--u) * 1) calc(var(--u) * 1) rgba(60, 14, 20, .35)); }
 .ticket { --stub: calc(var(--u) * 58); --notch: calc(var(--u) * 7); position: relative; display: grid; grid-template-columns: 1fr var(--stub); width: 100%; height: 100%; border-radius: calc(var(--u) * 8); color: var(--th-ink);
   background:
     radial-gradient(circle at calc(var(--u) * 8) calc(var(--u) * 8), rgba(255, 255, 255, .55), transparent calc(var(--u) * 40)),
@@ -100,7 +100,7 @@ button, input { font: inherit; }
 .ticket-change:hover { background: #fff; }
 
 /* ---------- 右上按钮 ---------- */
-.screen-controls { position: absolute; z-index: 10; display: grid; grid-auto-rows: 1fr; gap: calc(var(--u) * 10); }
+.screen-controls { position: absolute; z-index: 10; margin: var(--cut-y, 0px) 0 0 calc(-1 * var(--cut-x, 0px)); display: grid; grid-auto-rows: 1fr; gap: calc(var(--u) * 10); }
 .screen-controls button { border: calc(var(--u) * 1.5) solid rgba(255, 200, 190, .35); border-radius: calc(var(--u) * 10); background: rgba(40, 16, 24, .78); color: var(--th-paper); font-size: calc(var(--u) * 14); font-weight: 700; box-shadow: 0 calc(var(--u) * 3) calc(var(--u) * 10) rgba(0, 0, 0, .35); cursor: pointer; }
 .screen-controls button:hover:not(:disabled) { background: rgba(90, 26, 40, .9); }
 .screen-controls button:disabled { opacity: .55; cursor: default; }
@@ -108,7 +108,7 @@ button, input { font: inherit; }
 .screen-controls .enlarge-button:hover { background: #d9466a !important; }
 
 /* ---------- 聊天条（参考图底部） ---------- */
-.chat-bar { position: absolute; z-index: 10; display: flex; align-items: stretch; gap: calc(var(--u) * 10); padding: calc(var(--u) * 7) calc(var(--u) * 10); border: calc(var(--u) * 1.5) solid rgba(255, 190, 190, .3); border-radius: calc(var(--u) * 14); background: rgba(48, 18, 28, .8); box-shadow: 0 calc(var(--u) * 6) calc(var(--u) * 18) rgba(0, 0, 0, .45); }
+.chat-bar { position: absolute; z-index: 10; margin-top: calc(-1 * var(--cut-y, 0px)); display: flex; align-items: stretch; gap: calc(var(--u) * 10); padding: calc(var(--u) * 7) calc(var(--u) * 10); border: calc(var(--u) * 1.5) solid rgba(255, 190, 190, .3); border-radius: calc(var(--u) * 14); background: rgba(48, 18, 28, .8); box-shadow: 0 calc(var(--u) * 6) calc(var(--u) * 18) rgba(0, 0, 0, .45); }
 .chat-bar input { flex: 1; min-width: 0; padding: 0 calc(var(--u) * 14); border: calc(var(--u) * 1.5) solid rgba(255, 200, 200, .3); border-radius: calc(var(--u) * 10); background: rgba(255, 255, 255, .08); color: var(--th-paper); font-size: calc(var(--u) * 14); outline: none; }
 .chat-bar input::placeholder { color: rgba(255, 225, 215, .6); }
 .chat-bar input:focus { border-color: rgba(255, 190, 170, .7); }
