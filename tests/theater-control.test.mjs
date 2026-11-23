@@ -31,6 +31,8 @@ function side(role, href) {
   const dispatch = (type, target) => { for (const callback of docListeners.get(type) ?? []) callback({ type, target }); };
   const video = {
     tagName: "VIDEO",
+    VideoTogetherVideoId: `vt-${role}`,
+    duration: 1800,
     ended: false,
     paused: true,
     _time: 0,
@@ -47,7 +49,8 @@ function side(role, href) {
     ctxMemberCount: 2,
     gotTextMsg() {},
     CreateRoom() {}, JoinRoom() {}, exitRoom() {},
-    GetVideoDom: () => video,
+    // 和真实的 VideoTogether 一样：返回的是视频记录（id、时长），不是元素本身
+    GetVideoDom: () => ({ id: video.VideoTogetherVideoId, duration: video.duration, priority: 0 }),
     CalculateRealCurrent: (room) => room.currentTime + (now() - room.lastUpdateClientTime) / 1000,
     // 和 VideoTogether 一样：把成员的视频改成房间的样子
     async SyncMemberVideo(data, videoDom) {
@@ -62,6 +65,8 @@ function side(role, href) {
     documentElement: { classList: { toggle() {} } },
     createElement: () => ({}),
     querySelector: () => video,
+    // 视频页上除了正片，还有一个推荐区的预览小视频
+    querySelectorAll: () => [{ tagName: "VIDEO", VideoTogetherVideoId: "preview", duration: 15, paused: true, currentTime: 0 }, video],
     addEventListener(type, callback) { docListeners.set(type, [...(docListeners.get(type) ?? []), callback]); },
   };
   window.document = document;

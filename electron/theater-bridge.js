@@ -74,7 +74,22 @@
     const part = url.searchParams.get("p");
     return `${url.origin}${url.pathname}${part ? `?p=${encodeURIComponent(part)}` : ""}`;
   };
-  const videoOf = (ext) => (ext && typeof ext.GetVideoDom === "function" && ext.GetVideoDom()) || document.querySelector("video");
+  // 页面上真正在放的那个播放器元素。注意 VideoTogether 的 GetVideoDom() 返回的是它内部的视频记录
+  // （只有 id、时长等），不是元素本身；元素上挂着同一个 VideoTogetherVideoId，按它找回来。
+  const videoOf = (ext) => {
+    const elements = typeof document.querySelectorAll === "function" ? Array.from(document.querySelectorAll("video, bwp-video")) : [];
+    let model = null;
+    try { model = ext && typeof ext.GetVideoDom === "function" ? ext.GetVideoDom() : null; } catch {}
+    if (model && model.id !== undefined) {
+      const matched = elements.find((element) => element.VideoTogetherVideoId === model.id);
+      if (matched) return matched;
+    }
+    if (model && typeof model.pause === "function" && "currentTime" in model) return model; // 已经是元素
+    // 找不到时取时长最长的那个（视频页上就是正片播放器）
+    let best = null;
+    for (const element of elements) if (!best || (Number(element.duration) || 0) > (Number(best.duration) || 0)) best = element;
+    return best || document.querySelector("video");
+  };
   const roomTime = (ext, room) => {
     if (room.paused) return Number(room.currentTime) || 0;
     try { return Number(ext.CalculateRealCurrent(room)) || 0; } catch { return Number(room.currentTime) || 0; }
