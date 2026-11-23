@@ -25,6 +25,7 @@ function loadBridge() {
     CreateRoom(name, password) { calls.push(["create", name, password]); this.role = 2; this.roomName = name; },
     JoinRoom(name, password) { calls.push(["join", name, password]); this.role = 3; this.roomName = name; },
     exitRoom() { calls.push("exit"); this.role = 1; this.roomName = ""; },
+    ScheduledTask() { calls.push("tick"); },
   };
   const document = {
     head: { appendChild() {} },
@@ -51,17 +52,18 @@ test("bridge creates or joins the shared room exactly once and silences VideoTog
   const master = loadBridge();
   const credentials = roomCredentials("K7Q2MX");
   master.api.configure({ ...credentials, role: "master" });
-  assert.deepEqual(master.calls, [["create", credentials.name, credentials.password]]);
+  // 建房后立刻跑一次 VideoTogether 的定时任务（连服务器、上传房间），不用等它自己的 2 秒周期
+  assert.deepEqual(master.calls, [["create", credentials.name, credentials.password], "tick"]);
   master.api.configure({ ...credentials, role: "master" });
-  assert.equal(master.calls.length, 1, "already in the room: no second create");
+  assert.equal(master.calls.filter((call) => Array.isArray(call)).length, 1, "already in the room: no second create");
   master.extension.gotTextMsg("x", "hello");
   assert.ok(!master.calls.includes("speak"), "text-to-speech replaced by bubbles");
 
   const member = loadBridge();
   member.api.configure({ ...credentials, role: "member" });
-  assert.deepEqual(member.calls, [["join", credentials.name, credentials.password]]);
+  assert.deepEqual(member.calls, [["join", credentials.name, credentials.password], "tick"]);
   member.extension.ctxMemberCount = 2;
-  assert.deepEqual({ ...member.api.drain(), messages: [], events: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [] });
+  assert.deepEqual({ ...member.api.drain(), messages: [], events: [], controls: [] }, { role: "member", inRoom: true, members: 2, hasVideo: true, messages: [], events: [], controls: [] });
 });
 
 test("bridge relays partner messages, hides its own echoes, and sends through VideoTogether", () => {

@@ -8,7 +8,23 @@ import {
 import { ReferenceStage } from "./ReferenceStage";
 import { BUBBLE, EMPTY_SEAT, otherSide, place, point, seatOf, UI } from "./stageLayout";
 
-type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; ambient?: number[] | null };
+type TheaterControl = { a: "pause" | "play" | "seek" | "url"; t: number };
+type TheaterStatus = { role: string; inRoom: boolean; members: number; hasVideo: boolean; canGoBack: boolean; messages: { msg: string }[]; controls?: TheaterControl[]; ambient?: number[] | null };
+
+const clock = (seconds: number) => {
+  const total = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, "0");
+  return h ? `${h}:${String(m).padStart(2, "0")}:${s}` : `${m}:${s}`;
+};
+/** 对方在自己那边操作了播放器，这边已经跟着同步：给一句提示 */
+export function controlNotice(control: TheaterControl): string {
+  if (control.a === "pause") return "TA 暂停了";
+  if (control.a === "play") return "TA 继续播放";
+  if (control.a === "seek") return `TA 跳到了 ${clock(control.t)}`;
+  return "TA 换了一个视频";
+}
 type TheaterInit = { config: TheaterConfig | null; label: string; testMode: boolean };
 type Rect = { x: number; y: number; width: number; height: number };
 
@@ -110,6 +126,8 @@ export function TheaterScene({ bridge: bridgeProp }: { bridge?: TheaterBridge })
     if (!bridge) return;
     const offState = bridge.onState((next) => {
       setStatus(next);
+      const control = next.controls?.at(-1);
+      if (control) setNotice(controlNotice(control));
       for (const { msg } of next.messages) {
         const message = parseTheaterMessage(msg);
         if (!message) continue;

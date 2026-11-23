@@ -86,6 +86,9 @@ test("theater hall rebuilt from the reference image: dolls, hold-hands, bubbles 
   assert.match(stage, /<Sprite sprite=\{SPRITES\.seatRightEmpty\} className=\{`seat-empty \$\{right \? "is-taken" : ""\}`\} \/>/);
   assert.match(css, /\.seat-empty\.is-taken \{ opacity: 0; \}/);
   assert.match(stage, /\{hold && <Sprite sprite=\{SPRITES\.armLeft\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.armRight\}[\s\S]*\{hold && <Sprite sprite=\{SPRITES\.heart\}/);
+  // 两边都能控制：对方的操作由主进程转给场景，场景提示“TA 暂停了”等
+  assert.match(await read("../electron/theater.cjs"), /controls: \(Array\.isArray\(next\.controls\) \? next\.controls : \[\]\)\s+\.filter\(\(item\) => item && \["pause", "play", "seek", "url"\]\.includes\(item\.a\)\)/);
+  assert.match(scene, /const control = next\.controls\?\.at\(-1\);\s+if \(control\) setNotice\(controlNotice\(control\)\);/);
   // 离开放映厅：场景右上角按钮和配对卡片都能关掉放映厅窗口
   const preload = await read("../electron/theater-preload.cjs");
   const theaterMain = await read("../electron/theater.cjs");
