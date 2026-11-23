@@ -66,7 +66,7 @@ project_009_草莓打卡屋/
 | `DATA-LOCAL` | 本地数据 | 保存设备编号、游戏状态、桌面版历史记录和内部日记照片，支持跨平台完整备份 | `app/page.tsx`, `electron/storage.cjs` |
 | `WEB` | 网页运行层 | vinext 构建、Worker 运行、Sites 资源绑定 | `vite.config.ts`, `worker/index.ts`, `.openai/hosting.json` |
 | `DESKTOP` | Windows / macOS 运行层 | 复用游戏界面、创建窗口、本地协议、存档迁移、应用更新 | `desktop/`, `electron/`, `.github/workflows/macos-build.yml` |
-| `THEATER` | 放映室 | 房间小电视入口；独立沙箱窗口打开 B站并注入固定版本 VideoTogether 两人同步观看；`--theater-test` 单机 A/B 测试 | `electron/theater.cjs`, `electron/theater-rules.cjs`, `electron/vendor/videotogether/`, `build/art/theater-tv/` |
+| `THEATER` | 放映室 | 房间小电视入口；像素小影院场景（参考图一比一还原，固定双人座位、气泡聊天、牵手），B站画面嵌在银幕里；注入固定版本 VideoTogether 两人同步；6 位放映厅码配对；`--theater-test` 单机 A/B 测试 | `app/theater/`, `desktop/theater.tsx`, `electron/theater.cjs`, `electron/theater-bridge.js`, `electron/theater-rules.cjs`, `electron/vendor/videotogether/`, `build/art/theater-ref/` |
 | `ASSETS` | 游戏素材 | 房间、猫咪动画、家具、食品、鼠标指针 | `public/game/` |
 | `TEST` | 回归检查 | 构建产物、规则、资源与关键页面结构检查 | `tests/rendered-html.test.mjs` |
 | `DOCS` | 项目文档 | 架构基线、问题清单、设计验收记录 | `docs/` |
