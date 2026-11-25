@@ -5,7 +5,7 @@ import PomodoroMiniWindow, { type PomodoroMiniSnapshot } from "./pomodoro-mini-w
 import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getFoshanTimePeriod, type TimePeriod } from "./game/time-period";
 import { getWeatherKind, type WeatherKind } from "./game/weather";
-import { CHRISTMAS_MUSIC, CHRISTMAS_ROOM_FALLBACK, getChristmasSceneAsset } from "./game/christmas";
+import { CHRISTMAS_FURNITURE_ASSETS, CHRISTMAS_MUSIC, CHRISTMAS_ROOM_FALLBACK, christmasFoods, getChristmasSceneAsset, type ChristmasFoodId } from "./game/christmas";
 import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, INITIAL_SEEDS, waterUnwateredPlots, type CropId, type CropPlotState, type ProduceInventory, type SeedInventory } from "./game/farm";
 import { clampFurniturePosition, clampToScene, furnitureFootprintAt, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type FurnitureFootprint, type Rect, type SceneId } from "./game/scene";
 import {
@@ -87,7 +87,7 @@ type DesktopUpdate = { phase: "available" | "downloading" | "downloaded" | "erro
 type BackupActionResult = { status: "exported" | "imported" | "cancelled" | "error"; message?: string; importedKeys?: number };
 type PhotoActionResult = { status: "selected" | "cancelled" | "error"; message?: string; photo?: JournalPhoto };
 type PlannerReminder = { key: string; at: number; title: string; body: string };
-type StoreFoodId = "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
+type StoreFoodId = ChristmasFoodId | "driedFish" | "chickenCan" | "salmonMousse" | "tunaRice" | "chickenCubes" | "catnipBiscuits";
 type CookedFoodId = "strawberryPuree" | "carrotSoup" | "tomatoSoup" | "catnipCookies" | "sunflowerRice" | "pumpkinPuree";
 type FoodId = StoreFoodId | CookedFoodId;
 type CocktailInventory = Record<CocktailId, number>;
@@ -128,8 +128,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.22";
+const RELEASE_VERSION = "0.9.23";
 const RELEASE_NOTES = [
+  { version: "0.9.23", items: ["小屋商店的 20 件家具换上圣诞装扮，已购买的家具自动升级", "猫咪食物区新增 6 款圣诞限定食品，购买后可从背包投喂", "读档、购买、拖放和恢复布局时，家具会避开圣诞树和树下的礼物"] },
   { version: "0.9.22", items: ["圣诞小屋和雪地院子换上节日画面，并按佛山时间切换光线。点窗户可以去看雪林", "右上角袜子可以控制圣诞背景音乐，播放黑胶时背景音乐自动暂停", "摆放家具时会避开圣诞树、固定物件和其他家具的底座"] },
   { version: "0.9.21", items: ["新增放映厅笔记本：自动记下两个人一起看过的视频、聊天和牵手，按每一次一起看分页，点视频可在银幕上重新打开", "修复两人都停在 B站首页、还没放视频时一直显示“等 TA 入座”的问题", "放映厅票根上点同步线路可查看连接诊断"] },
   { version: "0.9.20", items: ["放映厅票根上直接显示当前同步线路（国内线路 / 主线路），两台电脑线路一致才能连上"] },
@@ -254,6 +255,7 @@ const DEFAULT_FURNITURE_POSITIONS: Record<string, Point> = {
 };
 
 const storeFoodItems = [
+  ...christmasFoods,
   { id: "driedFish" as StoreFoodId, name: "蝴蝶结小鱼干", detail: "香香脆脆", price: 12, energy: 14, asset: "/game/food-dried-fish.png" },
   { id: "chickenCan" as StoreFoodId, name: "鸡肉肉酱罐头", detail: "软乎乎的肉酱", price: 18, energy: 20, asset: "/game/food-chicken-can.png" },
   { id: "salmonMousse" as StoreFoodId, name: "三文鱼慕斯", detail: "细腻的鱼肉慕斯", price: 24, energy: 26, asset: "/game/food-salmon-mousse.png" },
@@ -289,26 +291,26 @@ const COCKTAIL_BOOK_STEPS: Record<CocktailMethod, string[]> = {
 };
 
 const furnitureItems = [
-  { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: "/game/furniture-rug.png", standHeight: 0 },
-  { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: "/game/furniture-plant.png", standHeight: null },
-  { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: "/game/furniture-lamp.png", standHeight: null },
-  { id: "catbed", name: "云朵猫窝", detail: "软绵绵的基础小窝", price: 45, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 30 },
-  { id: "strawberrybed", name: "草莓篮子窝", detail: "暖红色的莓果小窝", price: 95, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 55 },
-  { id: "moonbed", name: "星空甜甜圈窝", detail: "适合睡一场长长的觉", price: 120, asset: "/game/furniture-catbed.png", standHeight: 4, rest: 80 },
-  { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: "/game/furniture-bookcase.png", standHeight: null },
-  { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: "/game/furniture-table.png", standHeight: 8 },
-  { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: "/game/furniture-cushion.png", standHeight: 2 },
-  { id: "chest", name: "木制玩具箱", detail: "收好猫咪的小玩具", price: 68, asset: "/game/furniture-chest.png", standHeight: 5 },
-  { id: "strawberrySofa", name: "草莓双人沙发", detail: "和草莓抱枕一起陷进软绵绵里。", price: 105, asset: "/game/furniture-strawberry-sofa.png", standHeight: 7, lounge: true },
-  { id: "catTree", name: "原木猫爬架", detail: "沿着原木台阶，一层层看更远。", price: 130, asset: "/game/furniture-cat-tree.png", standHeight: 11, platformHeights: [11, 22] },
-  { id: "fishFireplace", name: "小鱼壁炉", detail: "小鱼守着火光，雨夜也暖呼呼。", price: 120, asset: "/game/furniture-fish-fireplace.png", overlay: "/game/furniture-fish-fireplace-overlay.png", standHeight: null },
-  { id: "wickerRocker", name: "藤编摇椅", detail: "轻轻摇一摇，把困意晃成好梦。", price: 85, asset: "/game/furniture-wicker-rocker.png", standHeight: 8, lounge: true },
-  { id: "creamVanity", name: "奶油梳妆台", detail: "圆镜旁，梳好今天软乎乎的毛。", price: 95, asset: "/game/furniture-cream-vanity.png", standHeight: null },
-  { id: "grandfatherClock", name: "复古落地钟", detail: "滴答声慢慢走，屋子也安静下来。", price: 110, asset: "/game/furniture-grandfather-clock.png", overlay: "/game/furniture-grandfather-clock-overlay.png", standHeight: null },
-  { id: "fishScratcher", name: "鱼形抓板", detail: "小鱼肚皮正适合磨磨小爪。", price: 55, asset: "/game/furniture-fish-scratcher.png", standHeight: null, action: "scratch" as const },
-  { id: "flowerStool", name: "花朵矮凳", detail: "踩上一朵花，歇一会儿再出发。", price: 45, asset: "/game/furniture-flower-stool.png", standHeight: 5 },
-  { id: "teaCart", name: "茶点餐车", detail: "蛋糕与热茶，等一个悠闲下午。", price: 88, asset: "/game/furniture-tea-cart.png", standHeight: null },
-  { id: "yarnBasket", name: "毛线玩具篮", detail: "彩色毛线滚呀滚，快乐藏在篮子里。", price: 60, asset: "/game/furniture-yarn-basket.png", overlay: "/game/furniture-yarn-basket-overlay.png", standHeight: null, action: "scratch" as const },
+  { id: "rug", name: "草莓地毯", detail: "柔软的大地毯", price: 35, asset: `${CHRISTMAS_FURNITURE_ASSETS}/rug.webp`, standHeight: 0 },
+  { id: "plant", name: "薄荷盆栽", detail: "让房间有一点绿意", price: 48, asset: `${CHRISTMAS_FURNITURE_ASSETS}/plant.webp`, standHeight: null },
+  { id: "lamp", name: "蘑菇夜灯", detail: "晚上会暖暖发光", price: 60, asset: `${CHRISTMAS_FURNITURE_ASSETS}/lamp.webp`, standHeight: null },
+  { id: "catbed", name: "云朵猫窝", detail: "软绵绵的基础小窝", price: 45, asset: `${CHRISTMAS_FURNITURE_ASSETS}/catbed.webp`, standHeight: 4, rest: 30 },
+  { id: "strawberrybed", name: "草莓篮子窝", detail: "暖红色的莓果小窝", price: 95, asset: `${CHRISTMAS_FURNITURE_ASSETS}/strawberry-bed.webp`, standHeight: 4, rest: 55 },
+  { id: "moonbed", name: "星空甜甜圈窝", detail: "适合睡一场长长的觉", price: 120, asset: `${CHRISTMAS_FURNITURE_ASSETS}/moon-bed.webp`, standHeight: 4, rest: 80 },
+  { id: "bookcase", name: "草莓书柜", detail: "摆满绘本和小收藏", price: 82, asset: `${CHRISTMAS_FURNITURE_ASSETS}/bookcase.webp`, standHeight: null },
+  { id: "table", name: "莓果小圆桌", detail: "一起坐下吃点心", price: 58, asset: `${CHRISTMAS_FURNITURE_ASSETS}/table.webp`, standHeight: 8 },
+  { id: "cushion", name: "爱心软垫", detail: "软绵绵的休息角", price: 42, asset: `${CHRISTMAS_FURNITURE_ASSETS}/cushion.webp`, standHeight: 2 },
+  { id: "chest", name: "木制玩具箱", detail: "收好猫咪的小玩具", price: 68, asset: `${CHRISTMAS_FURNITURE_ASSETS}/chest.webp`, standHeight: 5 },
+  { id: "strawberrySofa", name: "草莓双人沙发", detail: "和草莓抱枕一起陷进软绵绵里。", price: 105, asset: `${CHRISTMAS_FURNITURE_ASSETS}/strawberry-sofa.webp`, standHeight: 7, lounge: true },
+  { id: "catTree", name: "原木猫爬架", detail: "沿着原木台阶，一层层看更远。", price: 130, asset: `${CHRISTMAS_FURNITURE_ASSETS}/cat-tree.webp`, standHeight: 11, platformHeights: [11, 22] },
+  { id: "fishFireplace", name: "小鱼壁炉", detail: "小鱼守着火光，雨夜也暖呼呼。", price: 120, asset: `${CHRISTMAS_FURNITURE_ASSETS}/fish-fireplace.webp`, overlay: `${CHRISTMAS_FURNITURE_ASSETS}/fish-fireplace-overlay.webp`, standHeight: null },
+  { id: "wickerRocker", name: "藤编摇椅", detail: "轻轻摇一摇，把困意晃成好梦。", price: 85, asset: `${CHRISTMAS_FURNITURE_ASSETS}/wicker-rocker.webp`, standHeight: 8, lounge: true },
+  { id: "creamVanity", name: "奶油梳妆台", detail: "圆镜旁，梳好今天软乎乎的毛。", price: 95, asset: `${CHRISTMAS_FURNITURE_ASSETS}/cream-vanity.webp`, standHeight: null },
+  { id: "grandfatherClock", name: "复古落地钟", detail: "滴答声慢慢走，屋子也安静下来。", price: 110, asset: `${CHRISTMAS_FURNITURE_ASSETS}/grandfather-clock.webp`, overlay: `${CHRISTMAS_FURNITURE_ASSETS}/grandfather-clock-overlay.webp`, standHeight: null },
+  { id: "fishScratcher", name: "鱼形抓板", detail: "小鱼肚皮正适合磨磨小爪。", price: 55, asset: `${CHRISTMAS_FURNITURE_ASSETS}/fish-scratcher.webp`, standHeight: null, action: "scratch" as const },
+  { id: "flowerStool", name: "花朵矮凳", detail: "踩上一朵花，歇一会儿再出发。", price: 45, asset: `${CHRISTMAS_FURNITURE_ASSETS}/flower-stool.webp`, standHeight: 5 },
+  { id: "teaCart", name: "茶点餐车", detail: "蛋糕与热茶，等一个悠闲下午。", price: 88, asset: `${CHRISTMAS_FURNITURE_ASSETS}/tea-cart.webp`, standHeight: null },
+  { id: "yarnBasket", name: "毛线玩具篮", detail: "彩色毛线滚呀滚，快乐藏在篮子里。", price: 60, asset: `${CHRISTMAS_FURNITURE_ASSETS}/yarn-basket.webp`, overlay: `${CHRISTMAS_FURNITURE_ASSETS}/yarn-basket-overlay.webp`, standHeight: null, action: "scratch" as const },
 ];
 
 const pets = [
@@ -339,6 +341,12 @@ const pets = [
 ];
 
 const INITIAL_INVENTORY: Record<FoodId, number> = {
+  christmasFishGift: 0,
+  christmasCatnipFlakes: 0,
+  christmasChickenSnowman: 0,
+  christmasChickenBells: 0,
+  christmasSalmonRoll: 0,
+  christmasTunaTree: 0,
   driedFish: 2,
   chickenCan: 0,
   salmonMousse: 0,
@@ -443,21 +451,43 @@ const FURNITURE_FOOTPRINTS: Record<string, FurnitureFootprint> = {
   fishScratcher: { halfWidth: 5, height: 4 }, flowerStool: { halfWidth: 5, height: 5 }, teaCart: { halfWidth: 6, height: 8 }, yarnBasket: { halfWidth: 5, height: 5 },
 };
 
+type FurnitureSize = readonly [width: number, height: number, anchor: number];
+
+// Room percentage limits bound the same sprite rectangle used by CSS and placement.
+const FURNITURE_SIZES: Record<string, FurnitureSize> = {
+  rug: [19, 12, 48], plant: [12, 17, 76], lamp: [12, 17, 76],
+  catbed: [18, 16, 61], strawberrybed: [18, 16, 61], moonbed: [18, 16, 61],
+  bookcase: [14, 22, 79], table: [18, 16, 56], cushion: [14, 13, 51], chest: [15, 18, 68],
+  strawberrySofa: [20, 18, 58], catTree: [16, 25, 81], fishFireplace: [17, 23, 76],
+  wickerRocker: [16, 21, 68], creamVanity: [17, 23, 76], grandfatherClock: [11, 25, 82],
+  fishScratcher: [12, 11, 57], flowerStool: [12, 14, 57], teaCart: [16, 20, 68], yarnBasket: [12, 13, 57],
+};
+
 function findFurniturePlacement(id: string, point: Point, placed: Record<string, Point>, purchased: readonly string[]) {
   const occupied = id === "rug" ? [] : purchased.flatMap((other) => {
     const footprint = FURNITURE_FOOTPRINTS[other];
     const position = placed[other];
     return other !== id && other !== "rug" && footprint && position ? [furnitureFootprintAt(position, footprint)] : [];
   });
-  return clampFurniturePosition(point, FURNITURE_FOOTPRINTS[id], occupied);
+  const [width, height, anchor] = FURNITURE_SIZES[id];
+  const above = height * anchor / 100;
+  const visual = { left: -width / 2, right: width / 2, top: -above, bottom: height - above };
+  return clampFurniturePosition(point, FURNITURE_FOOTPRINTS[id], occupied, visual);
 }
 
 function arrangeFurniture(purchased: string[], saved: Record<string, Point> = {}) {
   const placed: Record<string, Point> = {};
-  for (const { id } of furnitureItems) {
-    if (!purchased.includes(id)) continue;
-    const position = saved[id];
-    const preferred = position && Number.isFinite(position.x) && Number.isFinite(position.y) ? position : DEFAULT_FURNITURE_POSITIONS[id];
+  const items = furnitureItems.filter(({ id }) => purchased.includes(id));
+  for (const { id } of items) {
+    const point = saved[id];
+    if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) continue;
+    const valid = findFurniturePlacement(id, point, placed, purchased);
+    if (valid?.x === point.x && valid.y === point.y) placed[id] = point;
+  }
+  for (const { id } of items) {
+    if (placed[id]) continue;
+    const point = saved[id];
+    const preferred = point && Number.isFinite(point.x) && Number.isFinite(point.y) ? point : DEFAULT_FURNITURE_POSITIONS[id];
     const available = findFurniturePlacement(id, preferred, placed, purchased);
     if (!available) return null;
     placed[id] = available;
@@ -758,7 +788,17 @@ export default function Home() {
             continue;
           }
           merged.petSleep[id] = { ...sleep, furnitureId: furnitureId ?? null };
-          if (furnitureId) occupiedBeds.add(furnitureId);
+          if (furnitureId) {
+            occupiedBeds.add(furnitureId);
+            const bed = restFurniture.find((item) => item.id === furnitureId);
+            const savedPosition = parsed.furniturePositions?.[furnitureId];
+            const position = merged.furniturePositions[furnitureId];
+            if (bed && (position.x !== savedPosition?.x || position.y !== savedPosition?.y)) {
+              const target = getFurnitureTarget(position, bed.standHeight);
+              if (id !== merged.pet || scene === "room") merged.petPositions[id] = target;
+              if (id === merged.pet && scene === "room") merged.catPosition = target;
+            }
+          }
         }
         for (const id of Object.keys(merged.petSleep) as PetId[]) {
           const sleep = merged.petSleep[id];
@@ -2373,11 +2413,11 @@ export default function Home() {
       setToast("草莓不够，再写几篇日记吧！");
       return;
     }
-    setGame((current) => ({
+    setGame((current) => current.berries < item.price ? current : {
       ...current,
       berries: current.berries - item.price,
       inventory: { ...current.inventory, [item.id]: current.inventory[item.id] + 1 },
-    }));
+    });
     setToast(`${item.name} 已放进背包`);
   }
 
@@ -2393,12 +2433,18 @@ export default function Home() {
       setToast("屋里暂时没有空位，请先调整家具的位置");
       return;
     }
-    setGame((current) => ({
-      ...current,
-      berries: current.berries - item.price,
-      purchased: [...current.purchased, item.id],
-      furniturePositions: { ...current.furniturePositions, [item.id]: position },
-    }));
+    setGame((current) => {
+      if (current.purchased.includes(item.id) || current.berries < item.price) return current;
+      const available = current === game ? position
+        : findFurniturePlacement(item.id, DEFAULT_FURNITURE_POSITIONS[item.id], current.furniturePositions, current.purchased);
+      if (!available) return current;
+      return {
+        ...current,
+        berries: current.berries - item.price,
+        purchased: [...current.purchased, item.id],
+        furniturePositions: { ...current.furniturePositions, [item.id]: available },
+      };
+    });
     setToast(`${item.name} 已送到小屋`);
   }
 
@@ -2779,6 +2825,7 @@ export default function Home() {
 
           {game.scene === "room" && ownedFurniture.map((item) => {
             const position = game.furniturePositions[item.id] ?? DEFAULT_FURNITURE_POSITIONS[item.id];
+            const [width, height, anchor] = FURNITURE_SIZES[item.id];
             return (
               <button
                 key={item.id}
@@ -2786,7 +2833,8 @@ export default function Home() {
                 data-furniture={item.id}
                 data-scene-depth={item.id === "rug" ? "rug" : "furniture"}
                 className={`placed-furniture furniture-${item.id} ${dragging === item.id ? "dragging" : ""}`}
-                style={{ left: `${position.x}%`, top: `${position.y}%`, zIndex: Math.round(position.y) }}
+                style={{ left: `${position.x}%`, top: `${position.y}%`, maxWidth: `${width}%`,
+                  "--furniture-height-limit": `${height}dvh`, "--furniture-anchor": `${anchor}%`, zIndex: Math.round(position.y) } as CSSProperties}
                 onPointerDown={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
@@ -3315,7 +3363,7 @@ export default function Home() {
                     {shopCategory === "food" ? storeFoodItems.map((item) => (
                       <article key={item.id}>
                         <div className="store-art"><img src={item.asset} alt="" /><i>背包 ×{game.inventory[item.id]}</i></div>
-                        <div><small>补充活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                        <div><small>{item.id.startsWith("christmas") && "圣诞限定 · "}补充活力 +{item.energy}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
                         <button onClick={() => buyFood(item)}>🍓 {item.price}</button>
                       </article>
                     )) : shopCategory === "furniture" ? furnitureItems.map((item) => {
@@ -3323,7 +3371,7 @@ export default function Home() {
                       return (
                         <article key={item.id} className={`${owned ? "owned" : ""} furniture-card-${item.id}`}>
                           <div className="store-art"><img src={item.asset} alt="" /></div>
-                          <div><small>{item.rest ? `睡眠3小时 · 困倦值 -${item.rest}` : "可自由拖动"}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
+                          <div><small>圣诞款 · {item.rest ? `睡眠3小时 · 困倦值 -${item.rest}` : "可自由拖动"}</small><h2>{item.name}</h2><p>{item.detail}</p></div>
                           <button onClick={() => buyFurniture(item)} disabled={owned}>{owned ? "✓ 已拥有" : `🍓 ${item.price}`}</button>
                         </article>
                       );

@@ -77,6 +77,14 @@ test("bowl placement avoids both furniture and blocked docking spaces", () => {
   assert.equal(findBowlPlacement([{ left: 0, right: 100, top: 0, bottom: 100 }], { x: 4, y: 4 }), null);
 });
 
+test("can place the bowl along the side when furniture fills the usual floor area", () => {
+  const furniture = { left: 7, right: 69, top: 53, bottom: 89 };
+  const placement = findBowlPlacement([furniture], { x: 3, y: 2 });
+  assert.ok(placement);
+  assert.ok(placement.bowl.x > furniture.right);
+  assert.ok(placement.target.x > furniture.right);
+});
+
 test("a saved bowl stays at its chosen position and old or malformed saves use the default", () => {
   const preferred = { x: 43, y: 73 };
   const restored = normalizeBowlPosition(JSON.parse(JSON.stringify(preferred)));

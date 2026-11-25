@@ -86,6 +86,13 @@ export function findBowlPlacement(obstacles: Rect[], offset: Point, clearance: P
   // Keep the bowl off the main passage. Try other floor spaces if furniture was moved.
   const candidates = [{ ...DEFAULT_BOWL_POSITION }, { x: 51, y: 86 }, { x: 36, y: 87 }, { x: 17, y: 85 }, { x: 63, y: 64 }, { x: 45, y: 60 }];
   for (let y = 82; y >= 55; y -= 4) for (let x = 65; x >= 15; x -= 5) candidates.push({ x, y });
+  // A full room may leave its reachable space along the sides or against the back wall.
+  for (let y = 86; y >= 46; y -= 4) {
+    for (const x of [11, 77, 72, 68]) candidates.push({ x, y });
+  }
+  for (const y of [52, 50, 48, 46]) {
+    for (let x = 16; x <= 66; x += 2) candidates.push({ x, y });
+  }
   if (options.preferred) candidates.sort((a, b) => Math.hypot(a.x - options.preferred!.x, a.y - options.preferred!.y) - Math.hypot(b.x - options.preferred!.x, b.y - options.preferred!.y));
   const positions = options.strict ? options.preferred ? [options.preferred] : [] : options.preferred ? [options.preferred, ...candidates] : candidates;
   const bounds = SCENE_BOUNDS.room;

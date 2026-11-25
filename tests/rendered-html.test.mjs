@@ -8,10 +8,10 @@ import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { fetchPlaylist, isRemotePlaybackUrl, LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
 import { getFoshanTimePeriod, getTimePeriod } from "../app/game/time-period.ts";
-import { getChristmasSceneAsset } from "../app/game/christmas.ts";
+import { christmasFoods, getChristmasSceneAsset } from "../app/game/christmas.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
-import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
+import { CHRISTMAS_TREE_ART, clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
 import { CAT_ANIMATION_TICK_MS, CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
@@ -502,6 +502,29 @@ test("lets furniture touch the wall while keeping its feet out of fixed room fur
   }
 });
 
+test("moves tall furniture when the artwork covers the tree but its feet do not", () => {
+  const footprint = { halfWidth: 4, height: 14 };
+  const visual = { left: -5.5, right: 5.5, top: -20.5, bottom: 4.5 };
+  const oldPosition = { x: 44, y: 76 };
+  assert.deepEqual(clampFurniturePosition(oldPosition, footprint), oldPosition);
+  const moved = clampFurniturePosition(oldPosition, footprint, [], visual);
+  assert.ok(moved);
+  assert.notDeepEqual(moved, oldPosition);
+  assert.ok(CHRISTMAS_TREE_ART.every((rect) =>
+    moved.x + visual.right <= rect.left || moved.x + visual.left >= rect.right
+      || moved.y + visual.bottom <= rect.top || moved.y + visual.top >= rect.bottom));
+  const safe = { x: 65, y: 76 };
+  assert.deepEqual(clampFurniturePosition(safe, footprint, [], visual), safe);
+});
+
+test("ships six separate Christmas food artworks with valid shop values", async () => {
+  assert.equal(new Set(christmasFoods.map(({ id }) => id)).size, 6);
+  for (const { price, energy, asset } of christmasFoods) {
+    assert.ok(price > 0 && energy > 0);
+    await access(new URL(`../public${asset}`, import.meta.url));
+  }
+});
+
 test("keeps the cat body clear of the bar counter", () => {
   assert.deepEqual(clampToScene({ x: 86, y: 61 }, "room", ROOM_FIXED_OBSTACLES), { x: 79, y: 61 });
 });
@@ -809,9 +832,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.22"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.23"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.22"[\s\S]*version: "0\.9\.21"[\s\S]*放映厅笔记本[\s\S]*version: "0\.9\.20"[\s\S]*直接显示当前同步线路[\s\S]*version: "0\.9\.19"[\s\S]*同一台服务器[\s\S]*version: "0\.9\.18"[\s\S]*一直进不了房间[\s\S]*version: "0\.9\.17"[\s\S]*离开放映厅[\s\S]*version: "0\.9\.16"[\s\S]*像素小影院[\s\S]*version: "0\.9\.15"[\s\S]*新增放映室[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.23"[\s\S]*version: "0\.9\.23"[\s\S]*圣诞限定食品[\s\S]*version: "0\.9\.22"[\s\S]*version: "0\.9\.21"[\s\S]*放映厅笔记本[\s\S]*version: "0\.9\.20"[\s\S]*直接显示当前同步线路[\s\S]*version: "0\.9\.19"[\s\S]*同一台服务器[\s\S]*version: "0\.9\.18"[\s\S]*一直进不了房间[\s\S]*version: "0\.9\.17"[\s\S]*离开放映厅[\s\S]*version: "0\.9\.16"[\s\S]*像素小影院[\s\S]*version: "0\.9\.15"[\s\S]*新增放映室[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
