@@ -41,3 +41,6 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
