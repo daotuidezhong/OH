@@ -8,10 +8,10 @@ import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { fetchPlaylist, isRemotePlaybackUrl, LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
 import { getFoshanTimePeriod, getTimePeriod } from "../app/game/time-period.ts";
-import { christmasFoods, getChristmasSceneAsset } from "../app/game/christmas.ts";
+import { CHRISTMAS_GARLAND_BULBS, CHRISTMAS_TREE_BOX, CHRISTMAS_TREE_OUTLINE, christmasFoods, getChristmasSceneAsset } from "../app/game/christmas.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
-import { CHRISTMAS_TREE_ART, clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
+import { CHRISTMAS_TREE_ART, clampFurniturePosition, FURNITURE_FLOOR, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
 import { CAT_ANIMATION_TICK_MS, CAT_STATUS_ANIMATIONS, getCatStatus, getCatStatusTransition } from "../app/game/cat-actions.ts";
 import { canPetMove, decayPetStats, decayPetStatsByTime, formatSleepRemaining, getSleepRemainingMs, PET_STAT_DECAY_MS, SLEEP_DURATION_MS } from "../app/game/pet-stats.ts";
 import { getJournalReward } from "../app/game/journal-reward.ts";
@@ -1053,4 +1053,72 @@ test("server-renders the full-screen game without the old movement hint", async 
   assert.match(html, /aria-label="游戏菜单"/);
   assert.match(html, /<span>活力<\/span>[\s\S]*<span>困倦<\/span>/);
   assert.doesNotMatch(html, /weather-chip|天气同步中|room-help|点击地面移动/);
+});
+
+test("twinkles the garland bulbs along the top wall, and holds them still for reduced motion", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.ok(CHRISTMAS_GARLAND_BULBS.length >= 60);
+  assert.ok(CHRISTMAS_GARLAND_BULBS.every(([x, y]) => x > 0 && x < 100 && y > 0 && y < 6));
+  assert.match(source, /\(\["dim", "glow"\] as const\)\.map\(\(layer\) =>[\s\S]*className=\{`garland-lights garland-\$\{layer\}`\}/);
+  assert.match(css, /\.garland-dim i \{[^}]*animation-name: garland-dim/);
+  assert.match(css, /\.garland-glow i \{[^}]*animation-name: garland-glow/);
+  assert.match(css, /@keyframes garland-glow/);
+  const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+  assert.match(reduced, /\.garland-lights i \{ animation: none !important; \}/);
+});
+
+test("draws the painted tree on a depth-sorted layer so cats behind it stay behind it", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /className="room-tree-depth" data-scene-depth="tree"/);
+  const box = CHRISTMAS_TREE_BOX;
+  // The depth sort reads the ground 94% down the box: it must sit on the tree's base.
+  const ground = box.top + box.height * .94;
+  assert.ok(ground > 68 && ground < 72);
+  for (const [x, y] of CHRISTMAS_TREE_OUTLINE) {
+    assert.ok(x >= box.left && x <= box.left + box.width && y >= box.top && y <= box.top + box.height);
+  }
+});
+
+test("keeps cats from walking along the wall behind the Christmas tree", () => {
+  const tree = ROOM_FIXED_OBSTACLES.find((rect) => rect.left === 29);
+  assert.equal(tree.top, 0);
+  // Clicking the upper tree used to clamp to the wall line (y 43) and walk the cat into the trunk.
+  const clicked = getWalkPath({ x: 55, y: 50 }, { x: 39, y: 30 }, "room", ROOM_FIXED_OBSTACLES);
+  assert.ok(clicked.length);
+  const end = clicked.at(-1);
+  assert.ok(end.x <= tree.left || end.x >= tree.right || end.y >= tree.bottom);
+  assert.ok(ROOM_FIXED_OBSTACLES.every((rect) => !(end.x > rect.left && end.x < rect.right && end.y > rect.top && end.y < rect.bottom)));
+  const path = getWalkPath({ x: 20, y: 50 }, { x: 55, y: 45 }, "room", ROOM_FIXED_OBSTACLES);
+  assert.ok(path.length);
+  let from = { x: 20, y: 50 };
+  for (const point of path) {
+    // Every leg that crosses the tree's width does so in front of the gifts.
+    if (Math.max(from.x, point.x) > tree.left && Math.min(from.x, point.x) < tree.right) {
+      assert.ok(from.y >= tree.bottom && point.y >= tree.bottom);
+    }
+    from = point;
+  }
+});
+
+test("lets furniture use the floor left of the tree, out to the left wall", () => {
+  const footprint = { halfWidth: 3.5, height: 5 };
+  const visual = { left: -4.2, right: 3.5, top: -6.2, bottom: 4.6 }; // a cat bed at 1600×900
+  for (const spot of [{ x: 7, y: 60 }, { x: 15, y: 70 }, { x: 22, y: 64 }]) {
+    assert.deepEqual(clampFurniturePosition(spot, footprint, [], visual), spot);
+  }
+  const wall = clampFurniturePosition({ x: 0, y: 60 }, footprint, [], visual);
+  assert.ok(wall.x + visual.left >= 0 && wall.x - footprint.halfWidth >= FURNITURE_FLOOR.left);
+});
+
+test("sizes furniture for placement with the same widths the CSS draws", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const table = source.slice(source.indexOf("const FURNITURE_CSS_WIDTHS"), source.indexOf("};", source.indexOf("const FURNITURE_CSS_WIDTHS")));
+  const widths = new Map([...table.matchAll(/(\w+): \[([\d.]+), ([\d.]+), ([\d.]+)\]/g)].map(([, id, min, vw, max]) => [id, `clamp(${min}px, ${vw}vw, ${max}px)`]));
+  assert.equal(widths.size, 20);
+  for (const [id, clamp] of widths) {
+    const rule = new RegExp(`(\\.furniture-${id}\\b|\\[data-furniture="${id}"\\])[^{]*\\{ width: ([^;]+);`);
+    assert.equal(css.match(rule)?.[2], clamp, id);
+  }
 });

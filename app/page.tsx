@@ -5,7 +5,7 @@ import PomodoroMiniWindow, { type PomodoroMiniSnapshot } from "./pomodoro-mini-w
 import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getFoshanTimePeriod, type TimePeriod } from "./game/time-period";
 import { getWeatherKind, type WeatherKind } from "./game/weather";
-import { CHRISTMAS_FURNITURE_ASSETS, CHRISTMAS_MUSIC, CHRISTMAS_ROOM_FALLBACK, christmasFoods, getChristmasSceneAsset, type ChristmasFoodId } from "./game/christmas";
+import { CHRISTMAS_FURNITURE_ASSETS, CHRISTMAS_GARLAND_BULBS, CHRISTMAS_MUSIC, CHRISTMAS_TREE_BOX, CHRISTMAS_TREE_OUTLINE, CHRISTMAS_ROOM_FALLBACK, christmasFoods, getChristmasSceneAsset, type ChristmasFoodId } from "./game/christmas";
 import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, INITIAL_SEEDS, waterUnwateredPlots, type CropId, type CropPlotState, type ProduceInventory, type SeedInventory } from "./game/farm";
 import { clampFurniturePosition, clampToScene, furnitureFootprintAt, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type FurnitureFootprint, type Rect, type SceneId } from "./game/scene";
 import {
@@ -463,16 +463,56 @@ const FURNITURE_SIZES: Record<string, FurnitureSize> = {
   fishScratcher: [12, 11, 57], flowerStool: [12, 14, 57], teaCart: [16, 20, 68], yarnBasket: [12, 13, 57],
 };
 
+// Visible pixels of each square artwork (left, right, top, bottom as fractions), so
+// transparent margins do not count as furniture when checking the tree and walls.
+const FURNITURE_ART_BOUNDS: Record<string, readonly [left: number, right: number, top: number, bottom: number]> = {
+  rug: [.11, .96, .14, .85], plant: [.18, .81, .14, .92], lamp: [.26, .78, .07, .89],
+  catbed: [.03, .89, .22, .9], strawberrybed: [.05, .87, .22, .9], moonbed: [.03, .89, .23, .9],
+  bookcase: [.13, .88, .05, .95], table: [.07, .93, .32, .95], cushion: [.07, .93, .27, .95], chest: [.05, .95, .16, .95],
+  strawberrySofa: [.04, .96, .31, .97], catTree: [.1, .9, .04, .96], fishFireplace: [.06, .96, .15, .96],
+  wickerRocker: [.06, .94, .04, .95], creamVanity: [.15, .85, .11, .97], grandfatherClock: [.29, .71, .04, .96],
+  fishScratcher: [.04, .97, .46, .96], flowerStool: [.04, .96, .16, .96], teaCart: [.06, .95, .14, .97], yarnBasket: [.08, .92, .23, .96],
+};
+
+// Button widths from globals.css as clamp(min px, vw, max px); keep the two in step.
+const FURNITURE_CSS_WIDTHS: Record<string, readonly [min: number, vw: number, max: number]> = {
+  rug: [126, 16.8, 273], plant: [82, 9.5, 165], lamp: [82, 9.5, 165],
+  catbed: [130, 16, 265], strawberrybed: [130, 16, 265], moonbed: [130, 16, 265],
+  bookcase: [105, 12, 205], table: [130, 16, 270], cushion: [100, 12, 210], chest: [110, 13, 225],
+  strawberrySofa: [155, 20, 330], catTree: [120, 14, 240], fishFireplace: [125, 15, 250],
+  wickerRocker: [115, 14, 235], creamVanity: [125, 15, 250], grandfatherClock: [85, 9, 155],
+  fishScratcher: [90, 10, 170], flowerStool: [90, 10, 170], teaCart: [115, 14, 235], yarnBasket: [90, 10, 170],
+};
+
+// Mirrors the .placed-furniture CSS: the button width above, capped at the FURNITURE_SIZES width;
+// the square artwork is capped at 230px and the FURNITURE_SIZES height. The room fills the
+// viewport, so the result is in room percentages. The same numbers are used when loading a
+// save and while dragging, so a spot that is allowed while dragging stays allowed on reload.
+function furnitureVisual(id: string): Rect {
+  const [widthLimit, heightLimit, anchor] = FURNITURE_SIZES[id];
+  const [minWidth, vw, maxWidth] = FURNITURE_CSS_WIDTHS[id] ?? [86, 10, 180];
+  const room = typeof window === "undefined" || !window.innerWidth ? { width: 1600, height: 900 } : { width: window.innerWidth, height: window.innerHeight };
+  const button = Math.min(Math.max(minWidth, room.width * vw / 100), maxWidth, room.width * widthLimit / 100);
+  const side = Math.min(button, 230, room.height * heightLimit / 100);
+  const [left, right, top, bottom] = FURNITURE_ART_BOUNDS[id] ?? [0, 1, 0, 1];
+  const x = (fraction: number) => (fraction - .5) * side / room.width * 100;
+  const y = (fraction: number) => (fraction - anchor / 100) * side / room.height * 100;
+  return { left: x(left), right: x(right), top: y(top), bottom: y(bottom) };
+}
+
+// Footprints were sized for the largest artwork; never let the feet be wider than the drawn piece.
+function furnitureFootprint(id: string): FurnitureFootprint {
+  const footprint = FURNITURE_FOOTPRINTS[id];
+  const visual = furnitureVisual(id);
+  return { ...footprint, halfWidth: Math.min(footprint.halfWidth, (visual.right - visual.left) / 2 * .9) };
+}
+
 function findFurniturePlacement(id: string, point: Point, placed: Record<string, Point>, purchased: readonly string[]) {
   const occupied = id === "rug" ? [] : purchased.flatMap((other) => {
-    const footprint = FURNITURE_FOOTPRINTS[other];
     const position = placed[other];
-    return other !== id && other !== "rug" && footprint && position ? [furnitureFootprintAt(position, footprint)] : [];
+    return other !== id && other !== "rug" && FURNITURE_FOOTPRINTS[other] && position ? [furnitureFootprintAt(position, furnitureFootprint(other))] : [];
   });
-  const [width, height, anchor] = FURNITURE_SIZES[id];
-  const above = height * anchor / 100;
-  const visual = { left: -width / 2, right: width / 2, top: -above, bottom: height - above };
-  return clampFurniturePosition(point, FURNITURE_FOOTPRINTS[id], occupied, visual);
+  return clampFurniturePosition(point, furnitureFootprint(id), occupied, furnitureVisual(id));
 }
 
 function arrangeFurniture(purchased: string[], saved: Record<string, Point> = {}) {
@@ -494,6 +534,27 @@ function arrangeFurniture(purchased: string[], saved: Record<string, Point> = {}
   }
   return { ...DEFAULT_FURNITURE_POSITIONS, ...placed };
 }
+
+// Box and clip for the depth layer that redraws the painted tree above anything standing behind it.
+const TREE_LAYER_STYLE: CSSProperties = {
+  left: `${CHRISTMAS_TREE_BOX.left}%`, top: `${CHRISTMAS_TREE_BOX.top}%`,
+  width: `${CHRISTMAS_TREE_BOX.width}%`, height: `${CHRISTMAS_TREE_BOX.height}%`,
+  clipPath: `polygon(${CHRISTMAS_TREE_OUTLINE.map(([x, y]) =>
+    `${(x - CHRISTMAS_TREE_BOX.left) / CHRISTMAS_TREE_BOX.width * 100}% ${(y - CHRISTMAS_TREE_BOX.top) / CHRISTMAS_TREE_BOX.height * 100}%`).join(", ")})`,
+};
+// The inner layer is the whole room art, shifted so its tree lines up with the background.
+const TREE_ART_STYLE: CSSProperties = {
+  left: `${-CHRISTMAS_TREE_BOX.left / CHRISTMAS_TREE_BOX.width * 100}%`, top: `${-CHRISTMAS_TREE_BOX.top / CHRISTMAS_TREE_BOX.height * 100}%`,
+  width: `${100 / CHRISTMAS_TREE_BOX.width * 100}%`, height: `${100 / CHRISTMAS_TREE_BOX.height * 100}%`,
+};
+
+// Neighbouring bulbs fall into three offset groups, with a little jitter, so the garland twinkles
+// in a ripple instead of blinking all at once.
+const GARLAND_BULB_STYLES = CHRISTMAS_GARLAND_BULBS.map(([x, y], index) => ({
+  left: `${x}%`, top: `${y}%`,
+  "--twinkle-duration": `${1.8 + (index * 5 % 4) * .25}s`,
+  "--twinkle-delay": `${-((index % 3) * .8 + (index * 7 % 5) * .15)}s`,
+}) as CSSProperties);
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
 const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
@@ -2794,6 +2855,16 @@ export default function Home() {
             ? <canvas ref={sceneCanvasRef} className="room-background" role="img" aria-label="圣诞猫咪小屋" />
             : <img className="room-background" src={sceneAsset} alt="圣诞雪地小院" draggable={false} />}
           <div className="room-vignette" />
+          {game.scene === "room" && (["dim", "glow"] as const).map((layer) => (
+            <div key={layer} className={`garland-lights garland-${layer}`} aria-hidden="true">
+              {GARLAND_BULB_STYLES.map((style, index) => <i key={index} style={style} />)}
+            </div>
+          ))}
+          {game.scene === "room" && (
+            <div className="room-tree-depth" data-scene-depth="tree" aria-hidden="true" style={TREE_LAYER_STYLE}>
+              <div style={{ ...TREE_ART_STYLE, backgroundImage: `url("${sceneAsset}")` }} />
+            </div>
+          )}
           <button type="button" data-interactive className={`scene-door scene-door-${game.scene} room-hint`} data-hint={game.scene === "room" ? "去院子" : "回到室内"} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot room-hint" data-hint="厨房烹饪" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot room-hint" data-hint="黑胶唱片" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}

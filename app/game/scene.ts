@@ -19,12 +19,17 @@ export const ROOM_FIXED_OBSTACLES: Rect[] = [
   { left: 0, right: 35, top: 0, bottom: 46 },
   { left: 69, right: 80, top: 0, bottom: 44 },
   { left: 81, right: 97, top: 35, bottom: 49 },
-  { left: 29, right: 49, top: 43, bottom: 71 }, // 圣诞树和树下礼物
+  // 圣诞树和树下礼物。从墙根一直挡到礼物前沿，猫不会沿着窗下墙根从树干后面穿过去、看起来像站在树上。
+  { left: 29, right: 49, top: 0, bottom: 71 },
   { left: 80, right: 100, top: 54, bottom: 90 },
   { left: 58, right: 68, top: 0, bottom: 49 }, // 放映室小电视（电视柜占地）
 ];
 
 // The background is stretched with the room, so the visible tree uses room percentages.
+// Furniture may stand closer to the side walls than a cat walks: the floor reaches
+// the left edge of the art below the kitchen counter.
+export const FURNITURE_FLOOR: Rect = { ...SCENE_BOUNDS.room, left: 2 };
+
 export const CHRISTMAS_TREE_ART: readonly Rect[] = [
   { left: 34.5, right: 42, top: 8, bottom: 29 },
   { left: 32, right: 45, top: 29, bottom: 47 },
@@ -43,9 +48,10 @@ export function clampFurniturePosition(
   occupied: Rect[] = [],
   visual?: Rect,
 ): Point | null {
-  const bounds = SCENE_BOUNDS.room;
-  const minX = bounds.left + footprint.halfWidth;
-  const maxX = bounds.right - footprint.halfWidth;
+  const bounds = FURNITURE_FLOOR;
+  // Feet stay on the floor and the drawn artwork stays inside the room.
+  const minX = Math.max(bounds.left + footprint.halfWidth, visual ? -visual.left : 0);
+  const maxX = Math.min(bounds.right - footprint.halfWidth, visual ? 100 - visual.right : 100);
   const minY = bounds.top;
   const maxY = bounds.bottom - 2;
   const next = {
@@ -128,7 +134,8 @@ export function clampToScene(point: Point, scene: SceneId, obstacles: Rect[] = [
       { point: { x: next.x, y: rect.bottom + 1 }, distance: rect.bottom - next.y },
     ].filter(({ point }) => point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom)
       .sort((a, b) => a.distance - b.distance);
-    next = choices[0]?.point ?? next;
+    // Prefer a side that is clear of every obstacle: stepping out of one must not land in a neighbour.
+    next = (choices.find(({ point }) => !obstacles.some((other) => inside(point, other))) ?? choices[0])?.point ?? next;
   }
   return next;
 }

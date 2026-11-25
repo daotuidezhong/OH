@@ -78,6 +78,19 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .scene-yard[data-period="noon"] .room-background { filter: brightness(1.16) saturate(.86); }
 .scene-yard[data-period="night"] .room-background { filter: brightness(.68) saturate(.9) hue-rotate(10deg); }
 .room-vignette { position: absolute; inset: 0; z-index: 2; background: radial-gradient(ellipse at 52% 48%, transparent 46%, rgba(53, 31, 25, .12) 100%); pointer-events: none; }
+/* Garland bulbs along the top wall: a multiply layer dims a bulb while a screen layer lights it, in turn. */
+.garland-lights { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
+.garland-dim { mix-blend-mode: multiply; }
+.garland-glow { mix-blend-mode: screen; }
+.garland-lights i { position: absolute; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); animation: var(--twinkle-duration) ease-in-out var(--twinkle-delay) infinite alternate; }
+.garland-dim i { width: .85%; background: radial-gradient(circle, rgba(92, 52, 28, .7) 0 42%, rgba(92, 52, 28, 0) 72%); animation-name: garland-dim; }
+.garland-glow i { width: 2.6%; background: radial-gradient(circle, rgba(255, 250, 226, .95) 0 10%, rgba(255, 214, 122, .6) 22%, rgba(255, 170, 72, .2) 42%, rgba(255, 170, 72, 0) 66%); animation-name: garland-glow; }
+.game-room:is([data-period="morning"], [data-period="noon"]) .garland-glow i { width: 2.1%; }
+@keyframes garland-dim { 0%, 30% { opacity: 1; } 65%, 100% { opacity: 0; } }
+@keyframes garland-glow { 0%, 30% { opacity: 0; } 65%, 100% { opacity: 1; } }
+/* The tree is painted into the room art; this clipped copy sorts by depth so whatever stands behind it stays behind it. */
+.room-tree-depth { position: absolute; overflow: hidden; pointer-events: none; }
+.room-tree-depth > div { position: absolute; background-size: 100% 100%; image-rendering: pixelated; filter: var(--scene-lighting); transition: filter 1.2s ease; }
 .game-room.scene-fading { opacity: .06; transition: opacity .32s ease; }
 
 .scene-door { position: absolute; z-index: 34; padding: 0; border: 0; background: transparent; clip-path: polygon(20% 0, 80% 0, 100% 10%, 100% 100%, 0 100%, 0 10%); }
@@ -1110,6 +1123,9 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .ice-cube-drop, .ice-cube-core, .unlock-ribbon, .result-glass, .result-drink-art, .pomodoro-window, .pomodoro-dial-face, .pomodoro-stats article, .pomodoro-celebration { animation: reduced-fade .2s var(--ease-out) both !important; }
   .ice-cube-slot { transition: opacity .2s ease !important; }
+  .garland-lights i { animation: none !important; }
+  .garland-dim i { opacity: 0; }
+  .garland-glow i { opacity: .7; }
   .game-dock button:is(:hover, :focus-visible) :is(.record-book, .record-book span, .bag-body span, .dock-icon-glyph, .dock-cart-item, .cart-wheel, .dock-paw, .dock-move-hint, .pomodoro-dock-icon, .pomodoro-dock-icon img, .pomodoro-ring) { animation: none !important; }
   .game-dock button:is(:hover, :focus-visible) :is(.closed-book, .open-book, .bag-zipper, .bag-inner, .bag-top, .zipper-track, .bag-content) { transform: none !important; }
   .game-dock button:is(:hover, :focus-visible) :is(.open-book, .bag-inner, .bag-opening, .bag-content, .dock-cart-item, .cart-wheel, .dock-move-hint, .pomodoro-ring) { opacity: .25; }
