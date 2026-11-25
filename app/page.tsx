@@ -2309,7 +2309,11 @@ export default function Home() {
     if (game.scene !== "room" || decorating || overlay || sceneTransition || (event.target as HTMLElement).closest("[data-interactive], [data-furniture]")) return;
     const bounds = event.currentTarget.getBoundingClientRect();
     const clicked = { x: (event.clientX - bounds.left) / bounds.width * 100, y: (event.clientY - bounds.top) / bounds.height * 100 };
-    if (isInsideTree(clicked)) treeSparklesRef.current?.burst(clicked);
+    // Clicking the tree only sets off the sparkle burst; the cat stays where it is (and keeps sleeping).
+    if (isInsideTree(clicked)) {
+      treeSparklesRef.current?.burst(clicked);
+      return;
+    }
     if (resting) {
       requestSleepInterrupt();
       return;

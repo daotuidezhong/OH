@@ -1155,5 +1155,9 @@ test("lays particle sparkle over the painted tree without redrawing it", async (
   assert.match(sparkles, /prefers-reduced-motion: reduce/);
   assert.match(sparkles, /cancelAnimationFrame\(frame\)/);
   assert.match(source, /<TreeSparkles ref=\{treeSparklesRef\}/);
-  assert.match(source, /if \(isInsideTree\(clicked\)\) treeSparklesRef\.current\?\.burst\(clicked\);/);
+  // Clicking the tree bursts the sparkle and leaves the cat where it is.
+  const moveCat = source.slice(source.indexOf("function moveCat"), source.indexOf("function walkCatTo"));
+  assert.match(moveCat, /if \(isInsideTree\(clicked\)\) \{\s*treeSparklesRef\.current\?\.burst\(clicked\);\s*return;\s*\}/);
+  assert.ok(moveCat.indexOf("isInsideTree(clicked)") < moveCat.indexOf("walkCatTo(target)"));
+  assert.ok(moveCat.indexOf("isInsideTree(clicked)") < moveCat.indexOf("requestSleepInterrupt()"));
 });
