@@ -129,8 +129,17 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.23";
-const RELEASE_NOTES = [
+const RELEASE_VERSION = "0.9.24";
+// A highlight card crops its picture straight out of the room art: x, y, width, height in room percentages.
+type ReleaseHighlight = { title: string; detail: string; crop: readonly [x: number, y: number, width: number, height: number]; twinkle?: boolean; sparkle?: boolean; furniture?: string };
+type ReleaseNote = { version: string; title?: string; highlights?: readonly ReleaseHighlight[]; items: readonly string[] };
+const RELEASE_ART = "/game/christmas/room-evening.webp";
+const RELEASE_NOTES: readonly ReleaseNote[] = [
+  { version: "0.9.24", title: "小屋亮起来了", highlights: [
+    { title: "灯带一闪一闪", detail: "小屋顶上、院子屋檐和栅栏的灯串轮流亮起，灯笼像烛光一样跳动。", crop: [40, 0, 22, 24.4], twinkle: true },
+    { title: "会发光的圣诞树", detail: "树上的小灯闪烁、金色光点绕树盘旋。点一下树，会炸出一团金粉。", crop: [26, 28, 24, 26.7], sparkle: true },
+    { title: "左边也能摆家具", detail: "树左边和靠墙的空地都能放家具了，小猫也不会再站到树上。", crop: [2, 40, 27, 30], furniture: `${CHRISTMAS_FURNITURE_ASSETS}/catbed.webp` },
+  ], items: ["小屋顶上和院子屋檐、栅栏的灯带一闪一闪，院子里的灯笼像烛光一样跳动", "圣诞树加上粒子光效：树上的小灯闪烁、金色光点绕树盘旋，点一下树会炸出一团金粉", "圣诞树左边和靠左墙的空地现在能摆家具；猫不会再走进树里、看起来站在树上"] },
   { version: "0.9.23", items: ["小屋商店的 20 件家具换上圣诞装扮，已购买的家具自动升级", "猫咪食物区新增 6 款圣诞限定食品，购买后可从背包投喂", "读档、购买、拖放和恢复布局时，家具会避开圣诞树和树下的礼物"] },
   { version: "0.9.22", items: ["圣诞小屋和雪地院子换上节日画面，并按佛山时间切换光线。点窗户可以去看雪林", "右上角袜子可以控制圣诞背景音乐，播放黑胶时背景音乐自动暂停", "摆放家具时会避开圣诞树、固定物件和其他家具的底座"] },
   { version: "0.9.21", items: ["新增放映厅笔记本：自动记下两个人一起看过的视频、聊天和牵手，按每一次一起看分页，点视频可在银幕上重新打开", "修复两人都停在 B站首页、还没放视频时一直显示“等 TA 入座”的问题", "放映厅票根上点同步线路可查看连接诊断"] },
@@ -560,6 +569,28 @@ const GARLAND_BULB_STYLES: Record<SceneId, CSSProperties[]> = {
   room: garlandBulbStyles(CHRISTMAS_GARLAND_BULBS),
   yard: garlandBulbStyles(YARD_GARLAND_BULBS),
 };
+// Update notice: the release being announced, its card garland, and pictures cropped from the room art.
+const currentRelease = RELEASE_NOTES.find((release) => release.version === RELEASE_VERSION) ?? RELEASE_NOTES[0];
+const RELEASE_HISTORY = RELEASE_NOTES.filter((release) => release !== currentRelease);
+// Bulbs hang from the wire, which sags as the lower half of an ellipse 26px deep (see .release-garland::before).
+const RELEASE_GARLAND = Array.from({ length: 13 }, (_, index) => {
+  const along = .04 + index * .0767;
+  return { left: `${along * 100}%`, top: `${Math.round(26 * Math.sqrt(1 - (2 * along - 1) ** 2)) - 1}px`, "--bulb": ["#ffd36b", "#ff7a6b", "#9fe08a"][index % 3],
+  "--twinkle-delay": `${-((index % 3) * .6 + (index * 7 % 5) * .12)}s` } as CSSProperties;
+});
+function releaseCropStyle([x, y, width, height]: readonly [number, number, number, number]): CSSProperties {
+  return { backgroundImage: `url("${RELEASE_ART}")`, backgroundSize: `${10000 / width}% ${10000 / height}%`,
+    backgroundPosition: `${x / (100 - width) * 100}% ${y / (100 - height) * 100}%` };
+}
+function releaseBulbsIn([x, y, width, height]: readonly [number, number, number, number]) {
+  return CHRISTMAS_GARLAND_BULBS.filter(([bx, by]) => bx > x && bx < x + width && by > y && by < y + height).map(([bx, by], index) => ({
+    left: `${(bx - x) / width * 100}%`, top: `${(by - y) / height * 100}%`, "--twinkle-delay": `${-((index % 3) * .6 + (index * 7 % 5) * .12)}s`,
+  }) as CSSProperties);
+}
+const RELEASE_SPARKLES = ([[22, 30], [64, 22], [44, 58], [78, 64], [30, 78], [56, 40]] as const).map(([x, y], index) => ({
+  left: `${x}%`, top: `${y}%`, "--sparkle-delay": `${-index * .37}s`,
+}) as CSSProperties);
+
 // Lanterns and the wall lamp in the yard flicker like candles, each on its own beat.
 const YARD_LANTERN_STYLES = ([[22.8, 23.6], [14.2, 51.2], [35.8, 33], [69.9, 33], [85.5, 45]] as const).map(([x, y], index) => ({
   left: `${x}%`, top: `${y}%`, "--flicker-delay": `${-index * .73}s`,
@@ -2830,18 +2861,43 @@ export default function Home() {
       {showReleaseNotes && (
         <div className="release-modal-layer" role="dialog" aria-modal="true" aria-labelledby="release-title">
           <section className="release-modal">
-            <small>UPDATE LOG</small>
-            <h1 id="release-title">已更新至 v{RELEASE_VERSION}</h1>
-            <p>以下是从首个安装版至今的全部更新内容：</p>
-            <div className="release-history">
-              {RELEASE_NOTES.map((release) => (
-                <section key={release.version}>
-                  <b>v{release.version}</b>
-                  <ul>{release.items.map((item) => <li key={item}>{item}</li>)}</ul>
-                </section>
-              ))}
+            <div className="release-garland" aria-hidden="true">{RELEASE_GARLAND.map((style, index) => <i key={index} style={style} />)}</div>
+            <header className="release-header">
+              <span className="release-tag">UPDATE</span>
+              <span className="release-version">v{RELEASE_VERSION}</span>
+              <h1 id="release-title">{currentRelease.title ?? `已更新至 v${RELEASE_VERSION}`}</h1>
+            </header>
+            <div className="release-body">
+              {currentRelease.highlights ? (
+                <ul className="release-highlights">
+                  {currentRelease.highlights.map((highlight) => (
+                    <li key={highlight.title}>
+                      <div className="release-shot" style={releaseCropStyle(highlight.crop)} aria-hidden="true">
+                        {highlight.twinkle && releaseBulbsIn(highlight.crop).map((style, index) => <i key={index} className="release-bulb" style={style} />)}
+                        {highlight.sparkle && RELEASE_SPARKLES.map((style, index) => <i key={index} className="release-sparkle" style={style} />)}
+                        {highlight.furniture && <img className="release-furniture" src={highlight.furniture} alt="" />}
+                      </div>
+                      <h2>{highlight.title}</h2>
+                      <p>{highlight.detail}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <ul className="release-items">{currentRelease.items.map((item) => <li key={item}>{item}</li>)}</ul>
+              )}
+              {RELEASE_HISTORY.length > 0 && (
+                <details className="release-history">
+                  <summary>以往更新 · {RELEASE_HISTORY.length} 个版本</summary>
+                  {RELEASE_HISTORY.map((release) => (
+                    <section key={release.version}>
+                      <b>v{release.version}</b>
+                      <ul>{release.items.map((item) => <li key={item}>{item}</li>)}</ul>
+                    </section>
+                  ))}
+                </details>
+              )}
             </div>
-            <button onClick={() => { writePersisted("berry-workout-release-notes-seen", RELEASE_VERSION); setShowReleaseNotes(false); }}>知道了</button>
+            <button autoFocus onClick={() => { writePersisted("berry-workout-release-notes-seen", RELEASE_VERSION); setShowReleaseNotes(false); }}>去小屋看看</button>
           </section>
         </div>
       )}

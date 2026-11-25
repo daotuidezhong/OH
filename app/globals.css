@@ -39,18 +39,52 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .update-notice p { max-height: 100px; margin: 10px 0; overflow: auto; white-space: pre-wrap; color: var(--muted); line-height: 1.5; }
 .update-notice > button:not(.update-close) { padding: 9px 14px; border: 2px solid #725344; border-radius: 10px; background: var(--gold); box-shadow: 0 3px 0 #bd8c3b; cursor: pointer; }
 .update-close { position: absolute; top: 8px; right: 9px; border: 0; background: transparent; color: var(--muted); font-size: 22px; cursor: pointer; }
+/* Update notice: a festive paper card with a twinkling garland, picture highlights and folded history. */
 .release-modal-layer { position: fixed; z-index: 300; inset: 0; padding: 20px; display: grid; place-items: center; background: rgba(40, 28, 24, .58); backdrop-filter: blur(6px); }
-.release-modal { width: min(560px, 100%); padding: 30px; border: 4px solid #765247; border-radius: 22px; background: #fff8e9; box-shadow: 0 8px 0 #4f352e, inset 0 0 0 3px #f3d7aa; }
-.release-modal small { color: var(--berry-dark); letter-spacing: 2px; }
-.release-modal h1 { margin: 10px 0 20px; color: var(--berry-dark); font-size: clamp(22px, 4vw, 34px); }
-.release-modal > p { margin: -8px 0 18px; color: var(--muted); line-height: 1.6; }
-.release-history { max-height: min(48vh, 420px); overflow: auto; }
-.release-history section + section { margin-top: 18px; padding-top: 16px; border-top: 1px dashed #c7aa90; }
-.release-history b { color: var(--berry-dark); }
-.release-modal ul { margin: 0; padding-left: 24px; color: var(--ink); line-height: 1.9; }
-.release-history ul { margin-top: 8px; }
-.release-modal li::marker { content: "🍓  "; }
-.release-modal button { width: 100%; margin-top: 24px; padding: 12px; border: 2px solid #853f43; border-radius: 12px; background: var(--berry); color: #fff; box-shadow: 0 4px 0 var(--berry-dark); cursor: pointer; }
+.release-modal { --release-ink: #4a2c22; position: relative; width: min(760px, 100%); max-height: calc(100dvh - 40px); display: flex; flex-direction: column; padding: 34px 30px 24px; border: 4px solid #765247; border-radius: 22px; background: radial-gradient(circle at 12% 0%, rgba(255, 214, 140, .35), transparent 42%), #fff8e9; box-shadow: 0 8px 0 #4f352e, inset 0 0 0 3px #f3d7aa; color: var(--release-ink); font-family: "ZCOOL KuaiLe", system-ui, sans-serif; animation: release-in .42s var(--ease-out) both; }
+@keyframes release-in { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+.release-garland { position: absolute; top: -4px; right: 18px; left: 18px; height: 30px; pointer-events: none; }
+.release-garland::before { content: ""; position: absolute; inset: 0 0 auto; height: 26px; border-bottom: 3px solid #3f6b3a; border-radius: 0 0 50% 50% / 0 0 100% 100%; }
+.release-garland i { position: absolute; width: 12px; height: 16px; margin-top: 5px; border-radius: 50% 50% 45% 45%; background: var(--bulb); box-shadow: 0 0 10px 2px var(--bulb); transform: translateX(-50%); animation: release-bulb 1.9s ease-in-out var(--twinkle-delay) infinite alternate; }
+.release-garland i::before { content: ""; position: absolute; top: -5px; left: 3px; width: 6px; height: 6px; border-radius: 1px; background: #6c5446; }
+@keyframes release-bulb { 0%, 30% { opacity: .35; box-shadow: none; } 65%, 100% { opacity: 1; } }
+.release-header { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 10px; margin-bottom: 18px; }
+.release-tag, .release-version { padding: 6px 8px 5px; border: 2px solid #853f43; border-radius: 4px; font-family: "Press Start 2P", monospace; font-size: 10px; line-height: 1; }
+.release-tag { background: var(--berry); color: #fff; box-shadow: 0 2px 0 var(--berry-dark); }
+.release-version { background: #fff; color: var(--berry-dark); }
+.release-header h1 { grid-column: 1 / -1; margin: 4px 0 0; color: var(--berry-dark); font-size: clamp(28px, 5vw, 40px); line-height: 1.1; }
+.release-body { min-height: 0; overflow: auto; margin: 0 -6px; padding: 0 6px; }
+.release-highlights { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; margin: 0; padding: 0; list-style: none; }
+.release-highlights li { padding: 10px 10px 14px; border: 2px solid #d9b58c; border-radius: 14px; background: #fffdf6; box-shadow: 0 3px 0 #e6cba8; }
+.release-shot { position: relative; aspect-ratio: 16 / 10; overflow: hidden; border: 2px solid #765247; border-radius: 8px; background-color: #6b4433; background-repeat: no-repeat; image-rendering: pixelated; }
+.release-highlights h2 { margin: 12px 4px 4px; color: var(--berry-dark); font-size: 19px; }
+.release-highlights p { margin: 0 4px; color: #6f5244; font-size: 14px; line-height: 1.6; }
+.release-bulb { position: absolute; width: 9%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgba(255, 250, 226, .95) 0 10%, rgba(255, 214, 122, .6) 24%, rgba(255, 170, 72, 0) 66%); transform: translate(-50%, -50%); mix-blend-mode: screen; animation: garland-glow 1.9s ease-in-out var(--twinkle-delay) infinite alternate; }
+.release-sparkle { position: absolute; width: 14%; aspect-ratio: 1; transform: translate(-50%, -50%); animation: release-sparkle 1.6s ease-in-out var(--sparkle-delay) infinite; }
+.release-sparkle::before, .release-sparkle::after { content: ""; position: absolute; inset: 46% 0; border-radius: 50%; background: linear-gradient(90deg, transparent, #fffbe8, transparent); }
+.release-sparkle::after { transform: rotate(90deg); }
+@keyframes release-sparkle { 0%, 55%, 100% { opacity: 0; transform: translate(-50%, -50%) scale(.3); } 75% { opacity: 1; transform: translate(-50%, -50%) scale(1); } }
+.release-furniture { position: absolute; left: 30%; top: 46%; width: 44%; image-rendering: pixelated; filter: drop-shadow(0 4px 3px rgba(40, 24, 16, .4)); animation: release-drop 2.4s var(--ease-out) infinite; }
+@keyframes release-drop { 0% { opacity: 0; transform: translateY(-18%); } 22%, 82% { opacity: 1; transform: none; } 100% { opacity: 0; transform: none; } }
+@media (max-width: 560px) {
+  .release-modal { padding: 30px 18px 18px; }
+  .release-highlights { grid-template-columns: 1fr; gap: 10px; }
+  .release-highlights li { display: grid; grid-template-columns: 112px 1fr; grid-template-rows: auto 1fr; column-gap: 12px; padding: 8px; }
+  .release-shot { grid-row: 1 / 3; align-self: start; }
+  .release-highlights h2 { margin: 2px 0 2px; font-size: 17px; }
+  .release-highlights p { margin: 0; font-size: 13px; line-height: 1.5; }
+}
+.release-items { margin: 0; padding-left: 22px; font-size: 16px; line-height: 1.8; }
+.release-history { margin-top: 16px; border-top: 2px dashed #d9b58c; }
+.release-history summary { padding: 12px 2px 4px; color: #8a6a58; font-size: 15px; cursor: pointer; }
+.release-history summary:hover { color: var(--berry-dark); }
+.release-history section { margin-top: 12px; }
+.release-history b { color: var(--berry-dark); font-family: "Press Start 2P", monospace; font-size: 10px; }
+.release-history ul { margin: 6px 0 0; padding-left: 20px; color: #6f5244; font-size: 14px; line-height: 1.7; }
+.release-modal > button { flex: none; width: 100%; margin-top: 18px; padding: 13px; border: 2px solid #853f43; border-radius: 12px; background: var(--berry); color: #fff; box-shadow: 0 4px 0 var(--berry-dark); font-family: inherit; font-size: 18px; cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.release-modal > button:focus-visible { outline: 3px solid #f2c46b; outline-offset: 3px; }
+.release-modal > button:hover { transform: translateY(-1px); }
+.release-modal > button:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--berry-dark); }
 
 .game-page { width: 100vw; height: 100dvh; overflow: hidden; }
 .game-stage { position: relative; width: 100%; height: 100%; overflow: hidden; isolation: isolate; cursor: url("/game/cursor-cat-paw-native.cur"), default !important; }
@@ -1128,6 +1162,8 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   .ice-cube-drop, .ice-cube-core, .unlock-ribbon, .result-glass, .result-drink-art, .pomodoro-window, .pomodoro-dial-face, .pomodoro-stats article, .pomodoro-celebration { animation: reduced-fade .2s var(--ease-out) both !important; }
   .ice-cube-slot { transition: opacity .2s ease !important; }
   .garland-lights :is(i, b) { animation: none !important; }
+  :is(.release-garland i, .release-bulb, .release-sparkle, .release-furniture) { animation: none !important; }
+  .release-sparkle { opacity: 0; }
   .garland-dim i { opacity: 0; }
   .garland-glow i { opacity: .7; }
   .game-dock button:is(:hover, :focus-visible) :is(.record-book, .record-book span, .bag-body span, .dock-icon-glyph, .dock-cart-item, .cart-wheel, .dock-paw, .dock-move-hint, .pomodoro-dock-icon, .pomodoro-dock-icon img, .pomodoro-ring) { animation: none !important; }

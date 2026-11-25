@@ -820,7 +820,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.doesNotMatch(api, /calorie|estimateCalories/i);
   assert.doesNotMatch(source, /backup-consent|syncDesktopRecord|BACKUP_ORIGIN|云备份/);
   assert.match(source, /RELEASE_NOTES[\s\S]*version: "0\.2\.2"[\s\S]*仅保存在本机[\s\S]*version: "0\.2\.1"[\s\S]*手账翻回前一页[\s\S]*无面部像素草莓/);
-  assert.match(source, /release-modal-layer[\s\S]*全部更新内容[\s\S]*RELEASE_NOTES\.map[\s\S]*知道了/);
+  // The notice leads with this version's picture highlights and folds earlier versions away.
+  assert.match(source, /release-modal-layer[\s\S]*currentRelease\.highlights[\s\S]*<details className="release-history">[\s\S]*RELEASE_HISTORY\.map[\s\S]*去小屋看看/);
+  assert.match(source, /const RELEASE_HISTORY = RELEASE_NOTES\.filter\(\(release\) => release !== currentRelease\)/);
   assert.match(source, /berry-workout-release-notes-seen/);
   assert.doesNotMatch(source, /className="release-notes"/);
   assert.doesNotMatch(api, /access-control-allow-origin|export function OPTIONS/);
@@ -832,9 +834,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.23"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.24"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.23"[\s\S]*version: "0\.9\.23"[\s\S]*圣诞限定食品[\s\S]*version: "0\.9\.22"[\s\S]*version: "0\.9\.21"[\s\S]*放映厅笔记本[\s\S]*version: "0\.9\.20"[\s\S]*直接显示当前同步线路[\s\S]*version: "0\.9\.19"[\s\S]*同一台服务器[\s\S]*version: "0\.9\.18"[\s\S]*一直进不了房间[\s\S]*version: "0\.9\.17"[\s\S]*离开放映厅[\s\S]*version: "0\.9\.16"[\s\S]*像素小影院[\s\S]*version: "0\.9\.15"[\s\S]*新增放映室[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.24"[\s\S]*version: "0\.9\.24"[\s\S]*粒子光效[\s\S]*version: "0\.9\.23"[\s\S]*圣诞限定食品[\s\S]*version: "0\.9\.22"[\s\S]*version: "0\.9\.21"[\s\S]*放映厅笔记本[\s\S]*version: "0\.9\.20"[\s\S]*直接显示当前同步线路[\s\S]*version: "0\.9\.19"[\s\S]*同一台服务器[\s\S]*version: "0\.9\.18"[\s\S]*一直进不了房间[\s\S]*version: "0\.9\.17"[\s\S]*离开放映厅[\s\S]*version: "0\.9\.16"[\s\S]*像素小影院[\s\S]*version: "0\.9\.15"[\s\S]*新增放映室[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
