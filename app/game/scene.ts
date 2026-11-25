@@ -2,6 +2,7 @@ import type { Point } from "./furniture";
 
 export type SceneId = "room" | "yard";
 export type Rect = { left: number; right: number; top: number; bottom: number };
+export type FurnitureFootprint = { halfWidth: number; height: number };
 
 export const SCENE_BOUNDS: Record<SceneId, Rect> = {
   room: { left: 7, right: 93, top: 43, bottom: 88 },
@@ -9,44 +10,65 @@ export const SCENE_BOUNDS: Record<SceneId, Rect> = {
 };
 
 export const YARD_OBSTACLES: Rect[] = [
-  { left: 0, right: 25, top: 0, bottom: 50 },
-  { left: 77, right: 88, top: 31, bottom: 54 },
-  { left: 90, right: 100, top: 28, bottom: 68 },
+  { left: 0, right: 26, top: 0, bottom: 51 },
+  { left: 77, right: 89, top: 26, bottom: 46 },
+  { left: 90, right: 100, top: 28, bottom: 66 },
 ];
 
 export const ROOM_FIXED_OBSTACLES: Rect[] = [
   { left: 0, right: 35, top: 0, bottom: 46 },
-  { left: 72, right: 81, top: 0, bottom: 45 },
-  { left: 81, right: 98, top: 35, bottom: 52 },
-  { left: 76, right: 94, top: 39, bottom: 51 },
-  { left: 72, right: 100, top: 54, bottom: 90 },
+  { left: 69, right: 80, top: 0, bottom: 44 },
+  { left: 81, right: 97, top: 35, bottom: 49 },
+  { left: 29, right: 49, top: 43, bottom: 71 }, // 圣诞树和树下礼物
+  { left: 80, right: 100, top: 54, bottom: 90 },
   { left: 58, right: 68, top: 0, bottom: 49 }, // 放映室小电视（电视柜占地）
 ];
 
-export function clampFurniturePosition(point: Point, footprint: { halfWidth: number; height: number }) {
+export function furnitureFootprintAt(point: Point, footprint: FurnitureFootprint): Rect {
+  return { left: point.x - footprint.halfWidth, right: point.x + footprint.halfWidth,
+    top: point.y - Math.min(2.5, footprint.height), bottom: point.y + 2 };
+}
+
+export function clampFurniturePosition(point: Point, footprint: FurnitureFootprint, occupied: Rect[] = []): Point | null {
   const bounds = SCENE_BOUNDS.room;
   const footDepth = Math.min(2.5, footprint.height);
+  const minX = bounds.left + footprint.halfWidth;
+  const maxX = bounds.right - footprint.halfWidth;
+  const minY = bounds.top;
+  const maxY = bounds.bottom - 2;
   const next = {
-    x: Math.min(bounds.right - footprint.halfWidth, Math.max(bounds.left + footprint.halfWidth, point.x)),
-    y: Math.min(bounds.bottom - 2, Math.max(bounds.top, point.y)),
+    x: Math.min(maxX, Math.max(minX, point.x)),
+    y: Math.min(maxY, Math.max(minY, point.y)),
   };
-  const overlaps = (candidate: Point, rect: Rect) => candidate.x + footprint.halfWidth > rect.left
-    && candidate.x - footprint.halfWidth < rect.right
-    && candidate.y + 2 > rect.top
-    && candidate.y - footDepth < rect.bottom;
-  if (!ROOM_FIXED_OBSTACLES.some((rect) => overlaps(next, rect))) return next;
+  const obstacles = [...ROOM_FIXED_OBSTACLES, ...occupied];
+  const fits = (point: Point) => {
+    const area = furnitureFootprintAt(point, footprint);
+    return !obstacles.some((rect) => area.right > rect.left && area.left < rect.right && area.bottom > rect.top && area.top < rect.bottom);
+  };
+  if (fits(next)) return next;
 
-  return ROOM_FIXED_OBSTACLES.flatMap((rect) => [
-    { x: rect.left - footprint.halfWidth - .5, y: next.y },
-    { x: rect.right + footprint.halfWidth + .5, y: next.y },
-    { x: next.x, y: rect.top - 2.5 },
-    { x: next.x, y: rect.bottom + footDepth + .5 },
-  ]).filter((candidate) => candidate.x >= bounds.left + footprint.halfWidth
-    && candidate.x <= bounds.right - footprint.halfWidth
-    && candidate.y >= bounds.top
-    && candidate.y <= bounds.bottom - 2
-    && !ROOM_FIXED_OBSTACLES.some((rect) => overlaps(candidate, rect)))
-    .sort((a, b) => Math.hypot(a.x - next.x, a.y - next.y) - Math.hypot(b.x - next.x, b.y - next.y))[0] ?? next;
+  const columns = new Set([next.x, minX, maxX]);
+  const rows = new Set([next.y, minY, maxY]);
+  for (const rect of obstacles) {
+    columns.add(rect.left - footprint.halfWidth);
+    columns.add(rect.right + footprint.halfWidth);
+    rows.add(rect.top - 2);
+    rows.add(rect.bottom + footDepth);
+  }
+  // A corner between two obstacles can require moving along both axes.
+  let closest: Point | null = null;
+  let distance = Infinity;
+  for (const x of columns) {
+    if (x < minX || x > maxX) continue;
+    for (const y of rows) {
+      if (y < minY || y > maxY) continue;
+      const offset = (x - next.x) ** 2 + (y - next.y) ** 2;
+      if (offset >= distance || !fits({ x, y })) continue;
+      closest = { x, y };
+      distance = offset;
+    }
+  }
+  return closest;
 }
 
 function inside(point: Point, rect: Rect) {

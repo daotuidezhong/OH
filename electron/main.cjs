@@ -70,6 +70,7 @@ if (singleInstance) app.whenReady().then(() => {
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       backgroundThrottling: false,
+      autoplayPolicy: "no-user-gesture-required",
     },
   });
   mainWindow = window;

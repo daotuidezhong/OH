@@ -7,7 +7,8 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { fetchPlaylist, isRemotePlaybackUrl, LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
-import { getTimePeriod } from "../app/game/time-period.ts";
+import { getFoshanTimePeriod, getTimePeriod } from "../app/game/time-period.ts";
+import { getChristmasSceneAsset } from "../app/game/christmas.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
 import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
@@ -68,6 +69,23 @@ test("uses furniture height to choose walking or jumping", () => {
   assert.deepEqual(getFurnitureTarget({ x: 48, y: 78 }, 0), { x: 48, y: 78, jumping: false, onTop: true });
   assert.deepEqual(getFurnitureTarget({ x: 61, y: 77 }, 8), { x: 61, y: 69, jumping: true, onTop: true });
   assert.deepEqual(getFurnitureTarget({ x: 86, y: 62 }, null), { x: 92, y: 62, jumping: false, onTop: false });
+});
+
+test("picks Christmas scenes by Foshan time across UTC day boundaries", () => {
+  const readings = [
+    ["2026-11-24T20:59:59Z", "night"],
+    ["2026-11-24T21:00:00Z", "morning"],
+    ["2026-11-25T03:00:00Z", "noon"],
+    ["2026-11-25T08:00:00Z", "evening"],
+    ["2026-11-25T11:00:00Z", "night"],
+  ];
+  for (const [utc, period] of readings) {
+    assert.equal(getFoshanTimePeriod(new Date(utc)), period);
+    const art = period === "night" ? "evening" : period;
+    assert.equal(getChristmasSceneAsset("room", period), `/game/christmas/room-${art}.webp`);
+    assert.equal(getChristmasSceneAsset("forest", period), `/game/christmas/forest-${art}.webp`);
+    assert.equal(getChristmasSceneAsset("yard", period), "/game/christmas/yard.webp");
+  }
 });
 
 test("maps Foshan weather codes to room weather states", () => {
@@ -218,7 +236,7 @@ test("runs a persistent 25 plus 5 pomodoro cycle and rewards five strawberries o
 });
 
 test("keeps yard movement out of large obstacles", () => {
-  assert.deepEqual(clampToScene({ x: 10, y: 45 }, "yard", YARD_OBSTACLES), { x: 10, y: 51 });
+  assert.deepEqual(clampToScene({ x: 10, y: 45 }, "yard", YARD_OBSTACLES), { x: 10, y: 52 });
   const path = getWalkPath({ x: 30, y: 76 }, { x: 92, y: 60 }, "yard", YARD_OBSTACLES);
   assert.ok(path.length >= 1 && path.length <= 2);
   assert.ok(path.every((point) => point.x >= 7 && point.x <= 94 && point.y >= 45 && point.y <= 89));
@@ -387,9 +405,15 @@ test("ships transparent eight-direction sprite sheets for every cat", async () =
   assert.match(css, /\.scene-cat \.cat-walk-sheet \{[^}]*width: 400%[^}]*height: 800%[^}]*translate\(calc\(var\(--walk-frame\) \* -25%\), calc\(var\(--walk-row\) \* -12\.5%\)\)/);
 });
 
+test("keeps the Christmas tree in the room art and opens the forest from the window", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  assert.match(source, /onClick={openForest}/);
+  assert.doesNotMatch(source, /ChristmasTreeAnimation|className="christmas-tree|看看圣诞树/);
+});
+
 test("keeps the room vinyl static without the rotating fragment", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(source, /ROOM_SCENE_ASSET_VERSION[\s\S]*\?v=\$\{ROOM_SCENE_ASSET_VERSION\}/);
+  assert.match(source, /const sceneAsset = getChristmasSceneAsset\(game\.scene, timePeriod\)/);
   assert.doesNotMatch(source, /roomVinylFrame|setRoomVinylFrame|room-frames|turntable-frames|room-turntable-vinyl/);
 });
 
@@ -453,7 +477,8 @@ test("automatically refreshes an expired stream and resumes its playback positio
   const recoveryBody = source.slice(recoveryStart, recoveryEnd);
   assert.match(recoveryBody, /isRemotePlaybackUrl\(track\.playbackUrl\)[\s\S]*fetchPlaylist\(\)/);
   assert.match(recoveryBody, /resumeAt[\s\S]*loadedmetadata[\s\S]*audio\.currentTime[\s\S]*audio\.play\(\)/);
-  assert.match(recoveryBody, /recoveringTrackId/);
+  assert.match(recoveryBody, /recoveringVinylRequest/);
+  assert.match(recoveryBody, /await fetchPlaylist\(\);\s*if \(request !== vinylRequest\.current\) return;/);
   assert.match(recoveryBody, /lastPlaybackRecovery[\s\S]*30_000/);
   assert.match(source, /onError=\{\(\) => \{ void recoverPlayback\(\); \}\}/);
   assert.match(route, /Cache-Control": "no-store, max-age=0"/);
@@ -461,23 +486,33 @@ test("automatically refreshes an expired stream and resumes its playback positio
 
 test("lets furniture touch the wall while keeping its feet out of fixed room furniture", () => {
   const footprint = { halfWidth: 6, height: 10 };
-  const wall = clampFurniturePosition({ x: 50, y: 20 }, footprint);
+  const wall = clampFurniturePosition({ x: 53, y: 20 }, { ...footprint, halfWidth: 3 });
   const kitchen = clampFurniturePosition({ x: 20, y: 30 }, footprint);
   const music = clampFurniturePosition({ x: 88, y: 48 }, footprint);
   const bar = clampFurniturePosition({ x: 90, y: 70 }, footprint);
+  const tree = clampFurniturePosition({ x: 39, y: 64 }, footprint);
   const overlaps = (point, rect) => point.x + footprint.halfWidth > rect.left
     && point.x - footprint.halfWidth < rect.right
     && point.y + 2 > rect.top
     && point.y - 2.5 < rect.bottom;
-  assert.deepEqual(wall, { x: 50, y: 43 });
+  assert.deepEqual(wall, { x: 53, y: 43 });
   assert.ok(wall.y - footprint.height < 43);
-  for (const point of [kitchen, music, bar]) {
+  for (const point of [kitchen, music, bar, tree]) {
     assert.ok(ROOM_FIXED_OBSTACLES.every((rect) => !overlaps(point, rect)));
   }
 });
 
 test("keeps the cat body clear of the bar counter", () => {
-  assert.deepEqual(clampToScene({ x: 78, y: 61 }, "room", ROOM_FIXED_OBSTACLES), { x: 71, y: 61 });
+  assert.deepEqual(clampToScene({ x: 86, y: 61 }, "room", ROOM_FIXED_OBSTACLES), { x: 79, y: 61 });
+});
+
+test("moves a furniture drop out of both the Christmas tree and an already placed sofa", () => {
+  const sofa = { left: 47, right: 65, top: 72, bottom: 77 };
+  const table = clampFurniturePosition({ x: 49, y: 73 }, { halfWidth: 7, height: 8 }, [sofa]);
+  assert.ok(table);
+  assert.ok(table.x + 7 <= sofa.left || table.x - 7 >= sofa.right || table.y + 2 <= sofa.top || table.y - 2.5 >= sofa.bottom);
+  const tree = ROOM_FIXED_OBSTACLES.find((rect) => rect.left === 29);
+  assert.ok(table.x + 7 <= tree.left || table.x - 7 >= tree.right || table.y + 2 <= tree.top || table.y - 2.5 >= tree.bottom);
 });
 
 test("keeps the cat and movement controls indoors", async () => {
@@ -497,7 +532,7 @@ test("selects seeds from the yard storage before planting a chosen plot", async 
   assert.match(source, /setSelectedSeed\(crop\.id\)[\s\S]*点击空田播种/);
   assert.match(source, /className="seed-storage"[\s\S]{0,300}setSelectedSeed\(null\)/);
   assert.doesNotMatch(source, /selectedPlot|setSelectedPlot/);
-  assert.match(css, /\.seed-storage \{[^}]*left: 91%/);
+  assert.match(css, /\.seed-storage \{[^}]*left: 90%[^}]*top: 52%/);
   assert.match(css, /\.game-room:is\(\.seed-selected, \.watering-selected\)[^{]*\{ cursor: none !important; \}/);
 });
 
@@ -561,7 +596,7 @@ test("weather and time preserve the interior colors", async () => {
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   assert.doesNotMatch(css, /data-weather[^\{]*\{[^\}]*--scene-lighting|not\(\[data-weather="clear"\]\) \.room-vignette/);
   assert.match(css, /data-period="night"\] \{ --scene-lighting: brightness\(\.97\); \}/);
-  assert.doesNotMatch(css, /data-period="(?:morning|evening|night)"[^\}]*\b(?:sepia|saturate|hue-rotate)\(/);
+  assert.doesNotMatch(css, /\.game-room\[data-period="(?:morning|evening|night)"[^\}]*\b(?:sepia|saturate|hue-rotate)\(/);
   assert.doesNotMatch(css, /data-period="night"\] \.room-vignette/);
 });
 
@@ -774,9 +809,9 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(schema, /category: text\("category"\)/);
   assert.match(checkins, /name === "rating"[\s\S]*ALTER TABLE checkins ADD rating INTEGER[\s\S]*ALTER TABLE checkins ADD reward INTEGER/);
   assert.match(electronMain, /app\.setName\("OH"\)[\s\S]*user-data\.json[\s\S]*createStorage\(dataFile, \{ journalPhotosDirectory \}\)[\s\S]*storage:load[\s\S]*storage:save/);
-  assert.match(packageJson, /"version": "0\.9\.21"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
+  assert.match(packageJson, /"version": "0\.9\.22"[\s\S]*"appId": "com\.berryworkout\.island\.desktop\.v2"[\s\S]*"productName": "OH"[\s\S]*"mac"[\s\S]*"target": "dmg"/);
   assert.match(packageJson, /"from": "desktop-dist"[\s\S]*"!game\/room-frames\{,\/\*\*\/\*\}"/);
-  assert.match(source, /RELEASE_VERSION = "0\.9\.21"[\s\S]*version: "0\.9\.21"[\s\S]*放映厅笔记本[\s\S]*version: "0\.9\.20"[\s\S]*直接显示当前同步线路[\s\S]*version: "0\.9\.19"[\s\S]*同一台服务器[\s\S]*version: "0\.9\.18"[\s\S]*一直进不了房间[\s\S]*version: "0\.9\.17"[\s\S]*离开放映厅[\s\S]*version: "0\.9\.16"[\s\S]*像素小影院[\s\S]*version: "0\.9\.15"[\s\S]*新增放映室[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
+  assert.match(source, /RELEASE_VERSION = "0\.9\.22"[\s\S]*version: "0\.9\.21"[\s\S]*放映厅笔记本[\s\S]*version: "0\.9\.20"[\s\S]*直接显示当前同步线路[\s\S]*version: "0\.9\.19"[\s\S]*同一台服务器[\s\S]*version: "0\.9\.18"[\s\S]*一直进不了房间[\s\S]*version: "0\.9\.17"[\s\S]*离开放映厅[\s\S]*version: "0\.9\.16"[\s\S]*像素小影院[\s\S]*version: "0\.9\.15"[\s\S]*新增放映室[\s\S]*version: "0\.9\.14"[\s\S]*八方向行走统一体型[\s\S]*version: "0\.9\.13"[\s\S]*共用 DeepSeek[\s\S]*version: "0\.9\.12"[\s\S]*周日程本[\s\S]*version: "0\.9\.11"/);
   assert.match(packageJson, /"createDesktopShortcut": "always"[\s\S]*"createStartMenuShortcut": true[\s\S]*"include": "build\/installer\.nsh"/);
   const installer = await readFile(new URL("../build/installer.nsh", import.meta.url), "utf8");
   assert.match(installer, /customInstall[\s\S]*newStartMenuLink[\s\S]*SetLnkAUMI[\s\S]*newDesktopLink[\s\S]*SetLnkAUMI[\s\S]*SHChangeNotify/);
@@ -814,7 +849,7 @@ test("keeps desktop records in update-safe local storage and uses daily ratings"
   assert.match(preload, /journalPhotos:[\s\S]*journal-photo:select[\s\S]*journal-photo:remove/);
 });
 
-test("replaces the photo board with a wall planner without changing room, yard, or weather semantics", async () => {
+test("keeps the wall planner available in the Christmas room", async () => {
   const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/game/planner/planner.css", import.meta.url), "utf8");
   const globalCss = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
@@ -827,7 +862,7 @@ test("replaces the photo board with a wall planner without changing room, yard, 
   assert.match(source, /readPersisted\(LEGACY_PHOTO_BOARD_KEY\) !== null\) removePersisted\(LEGACY_PHOTO_BOARD_KEY\)/);
   assert.doesNotMatch(source, /PhotoBoard|photo-board-photos/);
   assert.doesNotMatch(globalCss, /scene-photo-board|photo-board-overlay|photo-viewer/);
-  assert.match(css, /\.scene-planner \{[^}]*position: absolute[^}]*left: 88\.15%[^}]*width: clamp\([^}]*13\.6%/);
+  assert.match(css, /\.scene-planner \{[^}]*position: absolute[^}]*left: 88\.2%[^}]*width: 13\.9%[^}]*height: 14\.7%/);
   assert.match(css, /\.scene-planner-art \{[^}]*image-rendering: pixelated[^}]*filter: var\(--scene-lighting\)/);
   assert.match(css, /\.scene-planner\.is-open \.scene-planner-art \{[^}]*opacity: 0/);
   assert.match(wall, /ART_WIDTH = 96[\s\S]*ART_HEIGHT = 58[\s\S]*createImageData\(ART_WIDTH, ART_HEIGHT\)/);

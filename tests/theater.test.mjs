@@ -11,11 +11,10 @@ test("enters the theater from the room TV instead of a dock button", async () =>
   const css = await read("../app/globals.css");
   assert.doesNotMatch(source, /theater-dock|<b>放映室<\/b>/);
   assert.match(source, /data-scene-depth="tv" className="theater-tv room-hint" data-hint="进入放映室" onPointerDown=\{\(event\) => \{ event\.stopPropagation\(\); openTheater\(\); \}\}/);
-  assert.match(source, /furniture-tv\.png[\s\S]*theater-tv-on" src="\/game\/furniture-tv-on\.png"/);
+  assert.doesNotMatch(source, /furniture-tv(?:-on)?\.png/);
   assert.match(source, /function openTheater\(\) \{\s*if \(window\.gameUpdater\?\.theater\) window\.gameUpdater\.theater\.open\(\);\s*else setToast\("放映室目前只在 Windows 版可用"\)/);
-  assert.match(css, /\.theater-tv:hover \.theater-tv-on \{ opacity: 1; \}/);
-  await access(new URL("../public/game/furniture-tv.png", import.meta.url));
-  await access(new URL("../public/game/furniture-tv-on.png", import.meta.url));
+  assert.match(css, /\.theater-tv:is\(:hover, :focus-visible\)::before \{ opacity: 1; \}/);
+  await access(new URL("../public/game/christmas/room-noon.webp", import.meta.url));
   assert.ok(ROOM_FIXED_OBSTACLES.some((rect) => rect.left <= 63 && rect.right >= 63 && rect.bottom >= 48));
 });
 

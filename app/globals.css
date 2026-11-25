@@ -74,17 +74,18 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .game-room[data-period="night"] { --scene-lighting: brightness(.97); }
 .room-background { position: absolute; inset: 0; z-index: 0; width: 100%; height: 100%; image-rendering: pixelated; filter: var(--scene-lighting); transition: filter 1.2s ease; pointer-events: none; }
 .scene-yard .room-background { filter: none; }
+.scene-yard[data-period="morning"] .room-background { filter: brightness(1.08) saturate(.94); }
+.scene-yard[data-period="noon"] .room-background { filter: brightness(1.16) saturate(.86); }
+.scene-yard[data-period="night"] .room-background { filter: brightness(.68) saturate(.9) hue-rotate(10deg); }
 .room-vignette { position: absolute; inset: 0; z-index: 2; background: radial-gradient(ellipse at 52% 48%, transparent 46%, rgba(53, 31, 25, .12) 100%); pointer-events: none; }
 .game-room.scene-fading { opacity: .06; transition: opacity .32s ease; }
-.game-room[data-weather="thunderstorm"]::after { position: absolute; inset: 0; z-index: 3; content: ""; pointer-events: none; animation: lightning-flash 11s infinite; }
-@keyframes lightning-flash { 0%, 94%, 96%, 100% { background: transparent; } 95%, 97% { background: rgba(231, 235, 255, .2); } }
 
 .scene-door { position: absolute; z-index: 34; padding: 0; border: 0; background: transparent; clip-path: polygon(20% 0, 80% 0, 100% 10%, 100% 100%, 0 100%, 0 10%); }
-.scene-door-room { left: 72.4%; top: 11.5%; width: 8.8%; height: 31.6%; clip-path: inset(0); }
-.scene-door-yard { left: 14.2%; top: 17.7%; width: 6.8%; height: 25.5%; }
+.scene-door-room { left: 69.5%; top: 11%; width: 10%; height: 32%; clip-path: inset(0); }
+.scene-door-yard { left: 13.7%; top: 16%; width: 8.3%; height: 30%; }
 .kitchen-hotspot, .music-hotspot, .bar-hotspot { position: absolute; z-index: 33; padding: 0; border: 0; background: transparent; }
 .kitchen-hotspot { left: 3.4%; top: 5%; width: 29%; height: 40%; }
-.music-hotspot { left: 75.8%; top: 28%; width: 17.5%; height: 23%; }
+.music-hotspot { left: 81%; top: 29%; width: 15.5%; height: 20%; }
 
 .bar-hotspot { left: 79%; top: 54%; width: 21%; height: 38%; }
 /* Every clickable piece of the room names itself on hover, on the same paper plaque as the HUD. */
@@ -93,13 +94,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .music-hotspot { --hint-bottom: 10%; }
 .scene-door { --hint-bottom: 42%; }
 .planner-hotspot.room-hint { --hint-bottom: -34px; }
-/* 放映室小电视：电视柜 + 显像管电视，靠墙立在窗户与门之间，与唱片机柜同一条地面线；
-   尺寸按房间原图比例（168×220 / 1672×941），源文件见 build/art/theater-tv/；悬停时屏幕亮起。 */
-.theater-tv { --hint-bottom: calc(100% - 4px); position: absolute; z-index: 49; left: 63%; top: 48.6%; width: 10.05%; height: 23.4%; padding: 0; border: 0; background: transparent; transform: translate(-50%, -92.8%); }
-.theater-tv img { display: block; width: 100%; height: 100%; image-rendering: pixelated; filter: var(--scene-lighting); pointer-events: none; }
-.theater-tv .theater-tv-on { position: absolute; inset: 0; opacity: 0; filter: drop-shadow(0 0 8px rgba(255, 196, 120, .6)); transition: opacity .16s ease; }
-.theater-tv:focus-visible { outline: 3px dashed rgba(123, 76, 53, .85); outline-offset: 4px; }
-.theater-tv:focus-visible .theater-tv-on { opacity: 1; }
+.theater-tv { --hint-bottom: calc(100% - 4px); position: absolute; z-index: 49; left: 58.5%; top: 31%; width: 8.8%; height: 18%; padding: 0; border: 0; background: transparent; }
+.theater-tv::before { content: ""; position: absolute; left: 20%; top: 16%; width: 44%; height: 35%; border-radius: 25%; background: radial-gradient(ellipse, #c2f5dc55, transparent 80%); opacity: 0; transition: opacity .16s ease; }
+.theater-tv:is(:hover, :focus-visible)::before { opacity: 1; }
+.christmas-window { position: absolute; z-index: 33; left: 43.5%; top: 12%; width: 14.3%; height: 19%; padding: 0; border: 0; background: transparent; }
+:is(.theater-tv, .christmas-window):focus-visible { outline: 3px dashed #ffdfa0; }
 .room-hint:focus-visible::after { opacity: 1; transform: translate(-50%, 0); }
 :is(.kitchen-hotspot, .music-hotspot, .bar-hotspot):focus-visible { outline: 4px dashed rgba(123, 76, 53, .85); outline-offset: -8px; }
 .vinyl-player { margin-top: 17px; overflow: hidden; border: 4px solid #4b2d22; border-radius: 10px; background: #6d3d27; box-shadow: 0 6px 0 #382119, inset 0 0 0 3px #a66a3b; }
@@ -150,7 +149,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .crop-progress b { display: block; margin-top: 2px; font-size: 11px; line-height: 1; white-space: nowrap; }
 .crop-progress.complete { background: #e2f1c9; color: #3c6b3e; }
 @keyframes plot-effect { from { opacity: 0; transform: scale(.65); } 35% { opacity: 1; } to { opacity: 0; transform: scale(1.18) translateY(-8px); } }
-.seed-storage { position: absolute; z-index: 35; left: 91%; top: 49%; width: 9%; height: 20%; padding: 0; border: 0; background: transparent; }
+.seed-storage { position: absolute; z-index: 35; left: 90%; top: 52%; width: 10%; height: 14%; padding: 0; border: 0; background: transparent; }
 .seed-storage span { position: absolute; left: 50%; bottom: 4px; padding: 6px 8px; transform: translateX(-50%); border: 2px solid #75534a; border-radius: 9px; background: #fff4ce; font-size: 11px; white-space: nowrap; opacity: 0; }
 .seed-storage:hover span, .seed-storage:focus-visible span { opacity: 1; }
 .game-room:is(.seed-selected, .watering-selected), .game-room:is(.seed-selected, .watering-selected) * { cursor: none !important; }
@@ -168,7 +167,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .water-impact i { position: absolute; bottom: 7px; left: 24px; width: 4px; height: 9px; border-radius: 50%; background: #8bdcff; animation: impact-drop .34s .4s ease-out both; }
 .water-impact i:nth-child(2) { left: 13px; animation-delay: .46s; }
 .water-impact i:nth-child(3) { left: 38px; animation-delay: .5s; }
-.watering-can { position: absolute; z-index: 35; left: 72%; top: 36%; width: 8%; height: 14%; padding: 0; border: 0; outline: 0; border-radius: 50%; background: transparent; }
+.watering-can { position: absolute; z-index: 35; left: 72%; top: 38%; width: 6.5%; height: 9%; padding: 0; border: 0; outline: 0; border-radius: 50%; background: transparent; }
 .watering-can span { position: absolute; left: 50%; bottom: 12px; padding: 6px 8px; transform: translateX(-50%); border: 2px solid #75534a; border-radius: 9px; background: #fff4ce; font-size: 11px; white-space: nowrap; opacity: 0; }
 .watering-can:not(.selected):hover span { opacity: 1; }
 @keyframes watering-pickup { from { opacity: .45; transform: translate(-50%, -40%) scale(.82); } }
@@ -215,6 +214,16 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .data-transfer-button:active { transform: scale(.96); }
 
 .hud-counters { display: flex; gap: 9px; pointer-events: auto; }
+.christmas-music-toggle { position: absolute; top: 0; right: 0; display: grid; place-items: center; width: clamp(44px, 4.4vw, 58px); aspect-ratio: 1; border: 3px solid; border-color: var(--hud-border); border-radius: 5px; background: var(--hud-paper-grain), var(--hud-surface); box-shadow: var(--hud-shadow); pointer-events: auto; }
+.christmas-music-toggle:focus-visible { outline: 3px solid #fff3ce; outline-offset: 3px; }
+.christmas-stocking { width: 26px; height: 28px; background: linear-gradient(#fff4d7 0 22%, #ae3d36 22% 72%, #dd7358 72%); filter: drop-shadow(0 2px 0 #672b21); clip-path: polygon(0 0, 64% 0, 64% 11%, 58% 11%, 58% 53%, 82% 53%, 82% 61%, 95% 61%, 95% 85%, 85% 85%, 85% 97%, 18% 97%, 18% 89%, 7% 89%, 7% 22%, 0 22%); }
+.christmas-play-state { position: absolute; right: 4px; bottom: 4px; width: 12px; height: 12px; background: #532d1a; clip-path: polygon(23% 0, 97% 50%, 23% 100%); }
+.christmas-music-toggle[aria-pressed="true"] .christmas-play-state { clip-path: polygon(0 0, 36% 0, 36% 100%, 0 100%, 0 0, 64% 0, 100% 0, 100% 100%, 64% 100%, 64% 0); }
+.christmas-view { width: max-content; max-width: 94vw; max-height: 94vh; margin: auto; padding: 0; overflow: hidden; border: 4px solid #744629; border-radius: 7px; background: #382820; }
+.christmas-view::backdrop { background: #261d19bd; }
+.christmas-view img { display: block; max-width: 100%; max-height: calc(94vh - 50px); object-fit: contain; }
+.christmas-view form { display: flex; justify-content: center; padding: 7px; }
+.christmas-view button { padding: 5px 14px; border: 2px solid #a66e45; border-radius: 4px; background: #faead1; color: #532d1a; }
 .hud-counters > div { min-width: 104px; min-height: 66px; padding: 9px 13px; display: grid; grid-template-columns: 30px 1fr; grid-template-rows: auto auto; align-content: center; column-gap: 8px; border-radius: 5px; }
 .hud-counters > div > span { grid-row: 1 / 3; align-self: center; font-family: "Segoe UI Emoji", "Apple Color Emoji", sans-serif; font-size: 25px; line-height: 1; filter: drop-shadow(0 2px 2px rgba(116, 72, 43, .14)); }
 .hud-counters small { align-self: end; color: var(--muted); font-family: "ZCOOL KuaiLe", system-ui, sans-serif; font-size: 12px; line-height: 1; }
@@ -1098,7 +1107,6 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   .game-dock button:hover { border-color: #d2b07c; background: #ecd8b2; }
   .game-dock button.active:hover { background: rgba(239, 201, 137, .4); }
   .room-hint:hover::after { opacity: 1; transform: translate(-50%, 0); }
-  .theater-tv:hover .theater-tv-on { opacity: 1; }
   .ingredient-card:hover { border-color: var(--berry-dark); box-shadow: 0 7px 0 #d8a9a2; transform: translateY(-2px); }
   .bar-ingredients > div > button:hover { border-color: var(--berry-dark); transform: translateY(-1px); }
 }

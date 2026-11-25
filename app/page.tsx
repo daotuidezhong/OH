@@ -3,10 +3,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from "react";
 import PomodoroMiniWindow, { type PomodoroMiniSnapshot } from "./pomodoro-mini-window";
 import { getFurnitureTarget, type Point } from "./game/furniture";
-import { getTimePeriod, type TimePeriod } from "./game/time-period";
-import { getSceneAsset, getWeatherKind, type WeatherKind } from "./game/weather";
+import { getFoshanTimePeriod, type TimePeriod } from "./game/time-period";
+import { getWeatherKind, type WeatherKind } from "./game/weather";
+import { CHRISTMAS_MUSIC, CHRISTMAS_ROOM_FALLBACK, getChristmasSceneAsset } from "./game/christmas";
 import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, INITIAL_SEEDS, waterUnwateredPlots, type CropId, type CropPlotState, type ProduceInventory, type SeedInventory } from "./game/farm";
-import { clampFurniturePosition, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type Rect, type SceneId } from "./game/scene";
+import { clampFurniturePosition, clampToScene, furnitureFootprintAt, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type FurnitureFootprint, type Rect, type SceneId } from "./game/scene";
 import {
   CAT_STATUS_ANIMATIONS,
   getCatStatLevel,
@@ -127,8 +128,9 @@ type GameState = {
   pomodoro: PomodoroState;
 };
 
-const RELEASE_VERSION = "0.9.21";
+const RELEASE_VERSION = "0.9.22";
 const RELEASE_NOTES = [
+  { version: "0.9.22", items: ["圣诞小屋和雪地院子换上节日画面，并按佛山时间切换光线。点窗户可以去看雪林", "右上角袜子可以控制圣诞背景音乐，播放黑胶时背景音乐自动暂停", "摆放家具时会避开圣诞树、固定物件和其他家具的底座"] },
   { version: "0.9.21", items: ["新增放映厅笔记本：自动记下两个人一起看过的视频、聊天和牵手，按每一次一起看分页，点视频可在银幕上重新打开", "修复两人都停在 B站首页、还没放视频时一直显示“等 TA 入座”的问题", "放映厅票根上点同步线路可查看连接诊断"] },
   { version: "0.9.20", items: ["放映厅票根上直接显示当前同步线路（国内线路 / 主线路），两台电脑线路一致才能连上"] },
   { version: "0.9.19", items: ["修复放映厅两台电脑网络不同时连到不同同步服务器、互相等不到对方的问题：两边现在固定使用同一台服务器", "放映厅票根上显示当前同步线路，两边线路一致才能连上"] },
@@ -427,12 +429,12 @@ function removePersisted(key: string) {
 const LEGACY_PHOTO_BOARD_KEY = "berry-photo-board";
 
 const PLOT_POSITIONS = [
-  { x: 38, y: 45, width: 9.5, height: 8.8 }, { x: 48, y: 45, width: 9.5, height: 8.8 }, { x: 58, y: 45, width: 9.5, height: 8.8 }, { x: 68, y: 45, width: 9.5, height: 8.8 },
-  { x: 36, y: 56, width: 10, height: 9.5 }, { x: 46, y: 56, width: 10, height: 9.5 }, { x: 56, y: 56, width: 10, height: 9.5 }, { x: 67, y: 56, width: 10, height: 9.5 },
-  { x: 34, y: 70, width: 10.5, height: 10 }, { x: 45, y: 70, width: 10.5, height: 10 }, { x: 56, y: 70, width: 10.5, height: 10 }, { x: 68, y: 70, width: 10.5, height: 10 },
+  { x: 38.1, y: 45.4, width: 10.1, height: 9.8 }, { x: 47.6, y: 45.4, width: 9.6, height: 9.8 }, { x: 57.3, y: 45.4, width: 9.6, height: 9.8 }, { x: 67, y: 45.4, width: 10.2, height: 9.8 },
+  { x: 36.4, y: 56.8, width: 11.6, height: 11.8 }, { x: 47.4, y: 56.8, width: 10.2, height: 11.8 }, { x: 58.2, y: 56.8, width: 10.6, height: 11.8 }, { x: 68.9, y: 56.8, width: 11.9, height: 11.8 },
+  { x: 34.2, y: 71, width: 13.7, height: 15.2 }, { x: 46.7, y: 71, width: 12.4, height: 15.2 }, { x: 59, y: 71, width: 12.4, height: 15.2 }, { x: 71.4, y: 71, width: 13.6, height: 15.2 },
 ];
 
-const FURNITURE_FOOTPRINTS: Record<string, { halfWidth: number; height: number }> = {
+const FURNITURE_FOOTPRINTS: Record<string, FurnitureFootprint> = {
   rug: { halfWidth: 10, height: 2 }, plant: { halfWidth: 4, height: 9 }, lamp: { halfWidth: 4, height: 10 },
   catbed: { halfWidth: 7, height: 5 }, strawberrybed: { halfWidth: 7, height: 5 }, moonbed: { halfWidth: 7, height: 5 },
   bookcase: { halfWidth: 5, height: 11 }, table: { halfWidth: 7, height: 6 }, cushion: { halfWidth: 5, height: 4 }, chest: { halfWidth: 5, height: 6 },
@@ -440,6 +442,28 @@ const FURNITURE_FOOTPRINTS: Record<string, { halfWidth: number; height: number }
   wickerRocker: { halfWidth: 6, height: 9 }, creamVanity: { halfWidth: 7, height: 11 }, grandfatherClock: { halfWidth: 4, height: 14 },
   fishScratcher: { halfWidth: 5, height: 4 }, flowerStool: { halfWidth: 5, height: 5 }, teaCart: { halfWidth: 6, height: 8 }, yarnBasket: { halfWidth: 5, height: 5 },
 };
+
+function findFurniturePlacement(id: string, point: Point, placed: Record<string, Point>, purchased: readonly string[]) {
+  const occupied = id === "rug" ? [] : purchased.flatMap((other) => {
+    const footprint = FURNITURE_FOOTPRINTS[other];
+    const position = placed[other];
+    return other !== id && other !== "rug" && footprint && position ? [furnitureFootprintAt(position, footprint)] : [];
+  });
+  return clampFurniturePosition(point, FURNITURE_FOOTPRINTS[id], occupied);
+}
+
+function arrangeFurniture(purchased: string[], saved: Record<string, Point> = {}) {
+  const placed: Record<string, Point> = {};
+  for (const { id } of furnitureItems) {
+    if (!purchased.includes(id)) continue;
+    const position = saved[id];
+    const preferred = position && Number.isFinite(position.x) && Number.isFinite(position.y) ? position : DEFAULT_FURNITURE_POSITIONS[id];
+    const available = findFurniturePlacement(id, preferred, placed, purchased);
+    if (!available) return null;
+    placed[id] = available;
+  }
+  return { ...DEFAULT_FURNITURE_POSITIONS, ...placed };
+}
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
 const WAKE_SEQUENCE_LENGTH = WAKE_YAWN_SEQUENCE.length + 3;
@@ -451,7 +475,6 @@ const ICE_CUBE_LAYOUT = [
   { x: 39, rotation: 13 }, { x: -7, rotation: -8 }, { x: 25, rotation: 19 },
   { x: -28, rotation: -20 },
 ];
-const ROOM_SCENE_ASSET_VERSION = "20260817-static-vinyl-wall-furniture-v1";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -579,6 +602,8 @@ export default function Home() {
   const [playlistLoading, setPlaylistLoading] = useState(true);
   const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [backgroundPlaying, setBackgroundPlaying] = useState(false);
+  const [forestOpen, setForestOpen] = useState(false);
   const [volume, setVolume] = useState(.7);
   const [pomodoroNow, setPomodoroNow] = useState(Date.now());
   const [pomodoroAlert, setPomodoroAlert] = useState<PomodoroPhase | null>(null);
@@ -594,8 +619,13 @@ export default function Home() {
   const plannerHour = Math.floor(plannerNow / 3_600_000);
   const roomRef = useRef<HTMLDivElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const backgroundAudioRef = useRef<HTMLAudioElement>(null);
+  const backgroundEnabled = useRef(true);
+  const musicSource = useRef<"background" | "vinyl">("background");
+  const vinylRequest = useRef(0);
+  const forestDialogRef = useRef<HTMLDialogElement>(null);
   const pomodoroAudioContextRef = useRef<AudioContext | null>(null);
-  const recoveringTrackId = useRef<number | null>(null);
+  const recoveringVinylRequest = useRef<number | null>(null);
   const lastPlaybackRecovery = useRef<{ trackId: number; attemptedAt: number } | null>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const walkingTimer = useRef<number | undefined>(undefined);
@@ -616,8 +646,7 @@ export default function Home() {
   const handledPomodoroDeadline = useRef<number | null>(null);
   const desiredCatStatus = getCatStatus(game.energy, game.sleepiness);
   const currentTrack = playlist?.tracks.find((track) => track.id === playingTrackId) ?? null;
-  const sceneAsset = getSceneAsset(game.scene, weather.kind, timePeriod);
-  const renderedSceneUrl = `${sceneAsset}?v=${ROOM_SCENE_ASSET_VERSION}`;
+  const sceneAsset = getChristmasSceneAsset(game.scene, timePeriod);
   useRoomDepth(roomRef, walking);
 
   useEffect(() => {
@@ -666,8 +695,8 @@ export default function Home() {
           id,
           clampToScene(parsed.petPositions?.[id] ?? INITIAL_GAME.petPositions[id], "room", ROOM_FIXED_OBSTACLES),
         ])) as Record<PetId, Point>;
-        const furniturePositions = Object.fromEntries(Object.entries({ ...DEFAULT_FURNITURE_POSITIONS, ...(parsed.furniturePositions ?? {}) })
-          .map(([id, position]) => [id, clampFurniturePosition(position, FURNITURE_FOOTPRINTS[id])]));
+        const purchased = Array.isArray(parsed.purchased) ? parsed.purchased : [];
+        const furniturePositions = arrangeFurniture(purchased, parsed.furniturePositions) ?? arrangeFurniture(purchased) ?? DEFAULT_FURNITURE_POSITIONS;
         const merged: GameState = {
           ...INITIAL_GAME,
           ...parsed,
@@ -677,7 +706,7 @@ export default function Home() {
           cocktailInventory,
           gameSchemaVersion: 10,
           pet: activePet,
-          purchased: Array.isArray(parsed.purchased) ? parsed.purchased : [],
+          purchased,
           adoptedPets: Array.isArray(parsed.adoptedPets) && parsed.adoptedPets.length ? parsed.adoptedPets : [activePet],
           petNames: { ...INITIAL_GAME.petNames, ...(parsed.petNames ?? {}) },
           petStats: { ...INITIAL_GAME.petStats, ...(parsed.petStats ?? {}) },
@@ -815,6 +844,25 @@ export default function Home() {
   }, [volume]);
 
   useEffect(() => {
+    const audio = backgroundAudioRef.current;
+    if (!audio) return;
+    audio.volume = .12;
+    const playOnFirstInteraction = (event: Event) => {
+      if (!event.isTrusted || (event.target instanceof Element && event.target.closest(".christmas-music-toggle"))) return;
+      if (backgroundEnabled.current && musicSource.current === "background" && audio.paused) {
+        void audio.play().catch(() => undefined);
+      }
+    };
+    void audio.play().catch(() => undefined);
+    window.addEventListener("click", playOnFirstInteraction);
+    window.addEventListener("keydown", playOnFirstInteraction);
+    return () => {
+      window.removeEventListener("click", playOnFirstInteraction);
+      window.removeEventListener("keydown", playOnFirstInteraction);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!ready || !deviceId) return;
     let cancelled = false;
     const loadHistory = async () => {
@@ -863,10 +911,14 @@ export default function Home() {
   }, [deviceId, ready, historyRetry]);
 
   useEffect(() => {
-    const syncTimePeriod = () => setTimePeriod(getTimePeriod());
+    const syncTimePeriod = () => setTimePeriod(getFoshanTimePeriod());
     syncTimePeriod();
-    const timer = window.setInterval(syncTimePeriod, 60000);
-    return () => window.clearInterval(timer);
+    const timer = window.setInterval(syncTimePeriod, 15_000);
+    document.addEventListener("visibilitychange", syncTimePeriod);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", syncTimePeriod);
+    };
   }, []);
 
   useEffect(() => {
@@ -1190,9 +1242,9 @@ export default function Home() {
 
   useEffect(() => {
     const image = new Image();
-    image.src = getSceneAsset(game.scene === "room" ? "yard" : "room", weather.kind, timePeriod);
+    image.src = getChristmasSceneAsset(game.scene === "room" ? "yard" : "room", timePeriod);
     image.decode().catch(() => undefined);
-  }, [game.scene, timePeriod, weather.kind]);
+  }, [game.scene, timePeriod]);
 
   useEffect(() => {
     if (game.scene !== "room") return;
@@ -1208,9 +1260,12 @@ export default function Home() {
       context.imageSmoothingEnabled = false;
       context.drawImage(image, 0, 0);
     };
-    image.src = renderedSceneUrl;
+    image.onerror = () => {
+      if (!cancelled && !image.src.endsWith(CHRISTMAS_ROOM_FALLBACK)) image.src = CHRISTMAS_ROOM_FALLBACK;
+    };
+    image.src = sceneAsset;
     return () => { cancelled = true; };
-  }, [game.scene, renderedSceneUrl]);
+  }, [game.scene, sceneAsset]);
 
   // While walking, walkCatTo sets the leg frame from distance travelled; at rest it returns to the stance frame.
   useEffect(() => {
@@ -1312,7 +1367,7 @@ export default function Home() {
   useEffect(() => {
     if (game.scene !== "room" || overlay || decorating || sceneTransition) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable='true']")) return;
+      if (forestDialogRef.current?.open || (event.target instanceof HTMLElement && event.target.closest("input, textarea, [contenteditable='true']"))) return;
       const moves: Record<string, Point> = {
         ArrowLeft: { x: -3, y: 0 }, a: { x: -3, y: 0 }, A: { x: -3, y: 0 },
         ArrowRight: { x: 3, y: 0 }, d: { x: 3, y: 0 }, D: { x: 3, y: 0 },
@@ -1360,14 +1415,14 @@ export default function Home() {
         setBowlDraft({ position, valid: !!getBowlPlacement(game.pet, position, true) });
         return;
       }
-      const point = clampFurniturePosition({
+      const target = {
         x: ((event.clientX - rect.left) / rect.width) * 100,
         y: ((event.clientY - rect.top) / rect.height) * 100,
-      }, FURNITURE_FOOTPRINTS[dragging]);
-      setGame((current) => ({
-        ...current,
-        furniturePositions: { ...current.furniturePositions, [dragging]: point },
-      }));
+      };
+      setGame((current) => {
+        const point = findFurniturePlacement(dragging, target, current.furniturePositions, current.purchased);
+        return point ? { ...current, furniturePositions: { ...current.furniturePositions, [dragging]: point } } : current;
+      });
     };
     const stopDragging = (event: PointerEvent) => {
       if (dragging === "foodBowl") {
@@ -1613,6 +1668,11 @@ export default function Home() {
   function openTheater() {
     if (window.gameUpdater?.theater) window.gameUpdater.theater.open();
     else setToast("放映室目前只在 Windows 版可用");
+  }
+
+  function openForest() {
+    setForestOpen(true);
+    forestDialogRef.current?.showModal();
   }
 
   function openOverlay(id: Exclude<OverlayId, null>) {
@@ -2017,6 +2077,32 @@ export default function Home() {
     setDragging("foodBowl");
   }
 
+  function restoreBackgroundMusic() {
+    vinylRequest.current += 1;
+    audioRef.current?.pause();
+    musicSource.current = "background";
+    if (backgroundEnabled.current) void backgroundAudioRef.current?.play().catch(() => undefined);
+  }
+
+  function toggleBackgroundMusic() {
+    const audio = backgroundAudioRef.current;
+    if (!audio) return;
+    if (!audio.paused) {
+      backgroundEnabled.current = false;
+      audio.pause();
+      return;
+    }
+    backgroundEnabled.current = true;
+    restoreBackgroundMusic();
+  }
+
+  function takeOverForVinyl() {
+    vinylRequest.current += 1;
+    musicSource.current = "vinyl";
+    backgroundAudioRef.current?.pause();
+    return vinylRequest.current;
+  }
+
   function playTrack(track: PlaylistTrack) {
     const audio = audioRef.current;
     if (!audio) return;
@@ -2024,58 +2110,67 @@ export default function Home() {
       setToast(`${track.name} 受网易云版权或会员限制，当前无法直接播放`);
       return;
     }
-    if (recoveringTrackId.current !== track.id) lastPlaybackRecovery.current = null;
-    if (playingTrackId !== track.id) {
+    const request = takeOverForVinyl();
+    if (audio.dataset.trackId !== String(track.id) || audio.error) {
+      lastPlaybackRecovery.current = null;
       audio.dataset.trackId = String(track.id);
       audio.src = track.playbackUrl;
       audio.load();
       setPlayingTrackId(track.id);
     }
     audio.play().catch((error) => {
-      if (!(error instanceof DOMException && error.name === "AbortError") && !audio.error) setToast("这首歌暂时无法播放，请稍后再试");
+      if (request !== vinylRequest.current || (error instanceof DOMException && error.name === "AbortError") || audio.error) return;
+      setToast("这首歌暂时无法播放，请稍后再试");
+      restoreBackgroundMusic();
     });
   }
 
   async function recoverPlayback() {
     const audio = audioRef.current;
-    const track = playlist?.tracks.find((item) => item.id === playingTrackId);
+    if (musicSource.current !== "vinyl") return;
+    const request = vinylRequest.current;
+    const track = playlist?.tracks.find((item) => String(item.id) === audio?.dataset.trackId);
     if (!audio || !track || !isRemotePlaybackUrl(track.playbackUrl)) {
       setIsPlaying(false);
       setToast("歌曲加载失败，请重试或切换下一首");
+      restoreBackgroundMusic();
       return;
     }
     const now = Date.now();
     const previousRecovery = lastPlaybackRecovery.current;
-    if (recoveringTrackId.current === track.id) return;
+    if (recoveringVinylRequest.current === request) return;
     if (previousRecovery?.trackId === track.id && now - previousRecovery.attemptedAt < 30_000) {
       setIsPlaying(false);
       setToast("歌曲地址刷新后仍无法播放，请切换下一首");
+      restoreBackgroundMusic();
       return;
     }
 
     const resumeAt = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-    recoveringTrackId.current = track.id;
+    recoveringVinylRequest.current = request;
     lastPlaybackRecovery.current = { trackId: track.id, attemptedAt: now };
     setIsPlaying(false);
     setToast("播放地址已过期，正在自动刷新…");
     try {
       const refreshedPlaylist = await fetchPlaylist();
+      if (request !== vinylRequest.current) return;
       const refreshedTrack = refreshedPlaylist.tracks.find((item) => item.id === track.id);
       if (!refreshedTrack?.playbackUrl) throw new Error("没有新的播放地址");
       setPlaylist(refreshedPlaylist);
-      if (audio.dataset.trackId !== String(track.id)) return;
       audio.addEventListener("loadedmetadata", () => {
-        if (resumeAt > 0 && Number.isFinite(audio.duration)) audio.currentTime = Math.min(resumeAt, Math.max(0, audio.duration - .25));
+        if (request === vinylRequest.current && resumeAt > 0 && Number.isFinite(audio.duration)) audio.currentTime = Math.min(resumeAt, Math.max(0, audio.duration - .25));
       }, { once: true });
       audio.src = refreshedTrack.playbackUrl;
       audio.load();
       await audio.play();
-      setToast(`${track.name} 已恢复播放`);
+      if (request === vinylRequest.current) setToast(`${track.name} 已恢复播放`);
     } catch {
+      if (request !== vinylRequest.current) return;
       setIsPlaying(false);
       setToast("播放地址刷新失败，请检查网络或切换下一首");
+      restoreBackgroundMusic();
     } finally {
-      if (recoveringTrackId.current === track.id) recoveringTrackId.current = null;
+      if (recoveringVinylRequest.current === request) recoveringVinylRequest.current = null;
     }
   }
 
@@ -2087,10 +2182,8 @@ export default function Home() {
       if (firstTrack) playTrack(firstTrack);
       return;
     }
-    if (audio.paused) audio.play().catch((error) => {
-      if (!(error instanceof DOMException && error.name === "AbortError") && !audio.error) setToast("歌曲暂时无法继续播放");
-    });
-    else audio.pause();
+    if (musicSource.current === "vinyl") restoreBackgroundMusic();
+    else if (currentTrack) playTrack(currentTrack);
   }
 
   function skipTrack(offset: number) {
@@ -2295,11 +2388,16 @@ export default function Home() {
       setToast("草莓不够，再写几篇日记吧！");
       return;
     }
+    const position = findFurniturePlacement(item.id, DEFAULT_FURNITURE_POSITIONS[item.id], game.furniturePositions, game.purchased);
+    if (!position) {
+      setToast("屋里暂时没有空位，请先调整家具的位置");
+      return;
+    }
     setGame((current) => ({
       ...current,
       berries: current.berries - item.price,
       purchased: [...current.purchased, item.id],
-      furniturePositions: { ...current.furniturePositions, [item.id]: DEFAULT_FURNITURE_POSITIONS[item.id] },
+      furniturePositions: { ...current.furniturePositions, [item.id]: position },
     }));
     setToast(`${item.name} 已送到小屋`);
   }
@@ -2479,7 +2577,7 @@ export default function Home() {
     bowlDragRef.current = null;
     setBowlDraft(null);
     setDragging(null);
-    setGame((current) => ({ ...current, furniturePositions: { ...DEFAULT_FURNITURE_POSITIONS }, bowlPosition: { ...DEFAULT_BOWL_POSITION } }));
+    setGame((current) => ({ ...current, furniturePositions: arrangeFurniture(current.purchased) ?? current.furniturePositions, bowlPosition: { ...DEFAULT_BOWL_POSITION } }));
     setToast("家具已经恢复到推荐位置");
   }
 
@@ -2624,7 +2722,8 @@ export default function Home() {
         </div>
       )}
       <section className="game-stage" aria-label="OH 像素生活小屋">
-        <audio ref={audioRef} onPlay={() => setIsPlaying(true)} onPause={() => setIsPlaying(false)} onEnded={() => skipTrack(1)} onError={() => { void recoverPlayback(); }} />
+        <audio ref={audioRef} onPlaying={() => setIsPlaying(musicSource.current === "vinyl")} onPause={() => setIsPlaying(false)} onEnded={(event) => { if (musicSource.current === "vinyl" && event.currentTarget.ended) skipTrack(1); }} onError={() => { void recoverPlayback(); }} />
+        <audio ref={backgroundAudioRef} src={CHRISTMAS_MUSIC} loop onPlaying={() => setBackgroundPlaying(true)} onPause={() => setBackgroundPlaying(false)} />
         <div
           className={`game-room scene-${game.scene} ${decorating ? "decorating" : ""} ${sceneTransition ? "scene-fading" : ""} ${selectedSeed ? "seed-selected" : ""} ${watering ? "watering-selected" : ""} ${plannerOpen ? "planner-background" : ""}`}
           data-period={timePeriod}
@@ -2646,20 +2745,18 @@ export default function Home() {
           aria-label={game.scene === "room" ? "全屏像素小屋。点击地面或使用方向键移动猫咪。" : "全屏像素院子。点击田地进行种植，或使用导航栏。"}
         >
           {game.scene === "room"
-            ? <canvas ref={sceneCanvasRef} className="room-background" role="img" aria-label={`像素风猫咪小屋的${weather.label}场景`} />
-            : <img className="room-background" src={sceneAsset} alt={`像素风猫咪院子的${weather.label}场景`} draggable={false} />}
+            ? <canvas ref={sceneCanvasRef} className="room-background" role="img" aria-label="圣诞猫咪小屋" />
+            : <img className="room-background" src={sceneAsset} alt="圣诞雪地小院" draggable={false} />}
           <div className="room-vignette" />
           <button type="button" data-interactive className={`scene-door scene-door-${game.scene} room-hint`} data-hint={game.scene === "room" ? "去院子" : "回到室内"} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot room-hint" data-hint="厨房烹饪" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot room-hint" data-hint="黑胶唱片" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}
           {game.scene === "room" && <button type="button" data-interactive className="bar-hotspot room-hint" data-hint="开始调酒" onPointerDown={(event) => { event.stopPropagation(); openOverlay("bar"); }} aria-label="打开调酒台" />}
           {game.scene === "room" && (
-            <button type="button" data-interactive data-scene-depth="tv" className="theater-tv room-hint" data-hint="进入放映室" onPointerDown={(event) => { event.stopPropagation(); openTheater(); }} aria-label="进入放映室">
-              <img src="/game/furniture-tv.png" alt="" draggable={false} />
-              <img className="theater-tv-on" src="/game/furniture-tv-on.png" alt="" draggable={false} />
-            </button>
+            <button type="button" data-interactive data-scene-depth="tv" className="theater-tv room-hint" data-hint="进入放映室" onPointerDown={(event) => { event.stopPropagation(); openTheater(); }} aria-label="进入放映室" />
           )}
           {game.scene === "room" && <PlannerWall open={plannerOpen} planner={planner} today={today} now={plannerNow} onOpen={(rect) => { setPlannerOrigin(rect); setPlannerNow(Date.now()); setPlannerOpen(true); }} />}
+          {game.scene === "room" && <button type="button" data-interactive className="christmas-window room-hint" data-hint="看窗外的雪林" onClick={openForest} aria-label="看窗外的雪林" />}
 
           {game.scene === "yard" && PLOT_POSITIONS.map((position, index) => {
             const plot = game.farmPlots[index];
@@ -2753,6 +2850,11 @@ export default function Home() {
 
         </div>
 
+        <dialog ref={forestDialogRef} className="christmas-view" aria-label="窗外的雪林" onClose={(event) => { if (!event.currentTarget.open) setForestOpen(false); }}>
+          {forestOpen && <img src={getChristmasSceneAsset("forest", timePeriod)} alt="飘雪的松林与远山" />}
+          <form method="dialog"><button type="submit" autoFocus>回到小屋</button></form>
+        </dialog>
+
         <PlannerOverlay
           open={plannerOpen && game.scene === "room"}
           origin={plannerOrigin}
@@ -2810,6 +2912,10 @@ export default function Home() {
             <div data-counter="streak"><span aria-hidden="true"><PixelIcon name="flame" size={28} /></span><small>连续</small><b>{game.streak} 天</b></div>
             <div data-counter="berries"><span aria-hidden="true"><PixelIcon name="strawberry" size={28} /></span><small>草莓</small><b>{game.berries}</b></div>
           </div>
+          <button type="button" className="christmas-music-toggle" aria-label="圣诞背景音乐" aria-pressed={backgroundPlaying} title={backgroundPlaying ? "暂停圣诞背景音乐" : "播放圣诞背景音乐"} onClick={toggleBackgroundMusic}>
+            <span className="christmas-stocking" aria-hidden="true" />
+            <span className="christmas-play-state" aria-hidden="true" />
+          </button>
         </header>
 
         <aside className="pet-status">
