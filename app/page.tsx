@@ -5,7 +5,8 @@ import PomodoroMiniWindow, { type PomodoroMiniSnapshot } from "./pomodoro-mini-w
 import { getFurnitureTarget, type Point } from "./game/furniture";
 import { getFoshanTimePeriod, type TimePeriod } from "./game/time-period";
 import { getWeatherKind, type WeatherKind } from "./game/weather";
-import { CHRISTMAS_FURNITURE_ASSETS, CHRISTMAS_GARLAND_BULBS, CHRISTMAS_MUSIC, CHRISTMAS_TREE_BOX, CHRISTMAS_TREE_OUTLINE, CHRISTMAS_ROOM_FALLBACK, christmasFoods, getChristmasSceneAsset, type ChristmasFoodId } from "./game/christmas";
+import { TreeSparkles, type TreeSparklesHandle } from "./game/TreeSparkles";
+import { CHRISTMAS_FURNITURE_ASSETS, CHRISTMAS_GARLAND_BULBS, CHRISTMAS_MUSIC, CHRISTMAS_TREE_BOX, CHRISTMAS_TREE_OUTLINE, isInsideTree, YARD_GARLAND_BULBS, CHRISTMAS_ROOM_FALLBACK, christmasFoods, getChristmasSceneAsset, type ChristmasFoodId } from "./game/christmas";
 import { cropItems, EMPTY_FARM, formatCookingTime, formatGrowTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, INITIAL_SEEDS, waterUnwateredPlots, type CropId, type CropPlotState, type ProduceInventory, type SeedInventory } from "./game/farm";
 import { clampFurniturePosition, clampToScene, furnitureFootprintAt, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES, type FurnitureFootprint, type Rect, type SceneId } from "./game/scene";
 import {
@@ -550,10 +551,18 @@ const TREE_ART_STYLE: CSSProperties = {
 
 // Neighbouring bulbs fall into three offset groups, with a little jitter, so the garland twinkles
 // in a ripple instead of blinking all at once.
-const GARLAND_BULB_STYLES = CHRISTMAS_GARLAND_BULBS.map(([x, y], index) => ({
+const garlandBulbStyles = (bulbs: readonly (readonly [number, number])[]) => bulbs.map(([x, y], index) => ({
   left: `${x}%`, top: `${y}%`,
   "--twinkle-duration": `${1.8 + (index * 5 % 4) * .25}s`,
   "--twinkle-delay": `${-((index % 3) * .8 + (index * 7 % 5) * .15)}s`,
+}) as CSSProperties);
+const GARLAND_BULB_STYLES: Record<SceneId, CSSProperties[]> = {
+  room: garlandBulbStyles(CHRISTMAS_GARLAND_BULBS),
+  yard: garlandBulbStyles(YARD_GARLAND_BULBS),
+};
+// Lanterns and the wall lamp in the yard flicker like candles, each on its own beat.
+const YARD_LANTERN_STYLES = ([[22.8, 23.6], [14.2, 51.2], [35.8, 33], [69.9, 33], [85.5, 45]] as const).map(([x, y], index) => ({
+  left: `${x}%`, top: `${y}%`, "--flicker-delay": `${-index * .73}s`,
 }) as CSSProperties);
 
 const WAKE_YAWN_SEQUENCE = [0, 1, 2, 3, 3, 2, 1, 0];
@@ -648,6 +657,7 @@ export default function Home() {
   const [dateLabel, setDateLabel] = useState("");
   const [toast, setToast] = useState("");
   const [decorating, setDecorating] = useState(false);
+  const treeSparklesRef = useRef<TreeSparklesHandle>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [walking, setWalking] = useState(false);
   const [feeding, setFeeding] = useState(EMPTY_FEEDING);
@@ -2297,6 +2307,9 @@ export default function Home() {
 
   function moveCat(event: React.PointerEvent<HTMLDivElement>) {
     if (game.scene !== "room" || decorating || overlay || sceneTransition || (event.target as HTMLElement).closest("[data-interactive], [data-furniture]")) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const clicked = { x: (event.clientX - bounds.left) / bounds.width * 100, y: (event.clientY - bounds.top) / bounds.height * 100 };
+    if (isInsideTree(clicked)) treeSparklesRef.current?.burst(clicked);
     if (resting) {
       requestSleepInterrupt();
       return;
@@ -2855,9 +2868,10 @@ export default function Home() {
             ? <canvas ref={sceneCanvasRef} className="room-background" role="img" aria-label="圣诞猫咪小屋" />
             : <img className="room-background" src={sceneAsset} alt="圣诞雪地小院" draggable={false} />}
           <div className="room-vignette" />
-          {game.scene === "room" && (["dim", "glow"] as const).map((layer) => (
-            <div key={layer} className={`garland-lights garland-${layer}`} aria-hidden="true">
-              {GARLAND_BULB_STYLES.map((style, index) => <i key={index} style={style} />)}
+          {(["dim", "glow"] as const).map((layer) => (
+            <div key={`${game.scene}-${layer}`} className={`garland-lights garland-${layer}`} aria-hidden="true">
+              {GARLAND_BULB_STYLES[game.scene].map((style, index) => <i key={index} style={style} />)}
+              {layer === "glow" && game.scene === "yard" && YARD_LANTERN_STYLES.map((style, index) => <b key={index} className="yard-lantern-glow" style={style} />)}
             </div>
           ))}
           {game.scene === "room" && (
@@ -2865,6 +2879,7 @@ export default function Home() {
               <div style={{ ...TREE_ART_STYLE, backgroundImage: `url("${sceneAsset}")` }} />
             </div>
           )}
+          {game.scene === "room" && <TreeSparkles ref={treeSparklesRef} dim={timePeriod === "morning" || timePeriod === "noon"} />}
           <button type="button" data-interactive className={`scene-door scene-door-${game.scene} room-hint`} data-hint={game.scene === "room" ? "去院子" : "回到室内"} onPointerDown={(event) => { event.stopPropagation(); changeScene(); }} aria-label={game.scene === "room" ? "去院子" : "回到室内"} />
           {game.scene === "room" && <button type="button" data-interactive className="kitchen-hotspot room-hint" data-hint="厨房烹饪" onPointerDown={(event) => { event.stopPropagation(); openOverlay("kitchen"); }} aria-label="打开左墙厨房烹饪" />}
           {game.scene === "room" && <button type="button" data-interactive className="music-hotspot room-hint" data-hint="黑胶唱片" onPointerDown={(event) => { event.stopPropagation(); openOverlay("music"); }} aria-label="打开黑胶唱片与网易云歌单" />}

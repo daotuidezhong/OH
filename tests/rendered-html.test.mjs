@@ -8,7 +8,7 @@ import test from "node:test";
 import { CAT_BOUNDS, clampCatPosition, getFurnitureTarget } from "../app/game/furniture.ts";
 import { fetchPlaylist, isRemotePlaybackUrl, LOCAL_PLAYBACK_PATHS, PLAYLIST_ID, resolvePlaybackUrl } from "../app/game/music.ts";
 import { getFoshanTimePeriod, getTimePeriod } from "../app/game/time-period.ts";
-import { CHRISTMAS_GARLAND_BULBS, CHRISTMAS_TREE_BOX, CHRISTMAS_TREE_OUTLINE, christmasFoods, getChristmasSceneAsset } from "../app/game/christmas.ts";
+import { CHRISTMAS_GARLAND_BULBS, CHRISTMAS_TREE_BOX, CHRISTMAS_TREE_GLINTS, CHRISTMAS_TREE_LIGHTS, CHRISTMAS_TREE_OUTLINE, CHRISTMAS_TREE_STAR, christmasFoods, getChristmasSceneAsset, getTreeSpan, isInsideTree, YARD_GARLAND_BULBS } from "../app/game/christmas.ts";
 import { getRoomAsset, getWeatherKind, getYardAsset, ROOM_ASSET_BY_WEATHER } from "../app/game/weather.ts";
 import { cropItems, formatCookingTime, getCookingProgress, getCropProgress, getCropStage, INITIAL_PRODUCE, waterUnwateredPlots } from "../app/game/farm.ts";
 import { CHRISTMAS_TREE_ART, clampFurniturePosition, FURNITURE_FLOOR, clampToScene, getWalkPath, ROOM_FIXED_OBSTACLES, YARD_OBSTACLES } from "../app/game/scene.ts";
@@ -1065,7 +1065,7 @@ test("twinkles the garland bulbs along the top wall, and holds them still for re
   assert.match(css, /\.garland-glow i \{[^}]*animation-name: garland-glow/);
   assert.match(css, /@keyframes garland-glow/);
   const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
-  assert.match(reduced, /\.garland-lights i \{ animation: none !important; \}/);
+  assert.match(reduced, /\.garland-lights :is\(i, b\) \{ animation: none !important; \}/);
 });
 
 test("draws the painted tree on a depth-sorted layer so cats behind it stay behind it", async () => {
@@ -1121,4 +1121,39 @@ test("sizes furniture for placement with the same widths the CSS draws", async (
     const rule = new RegExp(`(\\.furniture-${id}\\b|\\[data-furniture="${id}"\\])[^{]*\\{ width: ([^;]+);`);
     assert.equal(css.match(rule)?.[2], clamp, id);
   }
+});
+
+test("twinkles the yard garlands on the eave and fence, with flickering lanterns", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  assert.ok(YARD_GARLAND_BULBS.length >= 30);
+  // Eave bulbs sit on the house at the left, fence bulbs along the fence line.
+  assert.ok(YARD_GARLAND_BULBS.every(([x, y]) => (x < 27 && y > 6 && y < 21) || (x > 25 && x < 80 && y > 23 && y < 31)));
+  assert.match(source, /GARLAND_BULB_STYLES\[game\.scene\]\.map/);
+  assert.match(source, /game\.scene === "yard" && YARD_LANTERN_STYLES\.map/);
+  assert.match(css, /\.yard-lantern-glow \{[^}]*animation: lantern-flicker/);
+});
+
+test("lays particle sparkle over the painted tree without redrawing it", async () => {
+  const source = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
+  const sparkles = await readFile(new URL("../app/game/TreeSparkles.tsx", import.meta.url), "utf8");
+  const { TREE_SPARKLE_BOX } = await import("../app/game/TreeSparkles.tsx").catch(() => ({}));
+  // Every light, glint and the star come from the tree's own art.
+  for (const [x, y] of [...CHRISTMAS_TREE_LIGHTS, ...CHRISTMAS_TREE_GLINTS]) assert.ok(isInsideTree({ x, y }), `${x},${y}`);
+  assert.ok(CHRISTMAS_TREE_LIGHTS.length >= 150);
+  assert.ok(isInsideTree(CHRISTMAS_TREE_STAR));
+  assert.ok(!isInsideTree({ x: 20, y: 40 }) && !isInsideTree({ x: 60, y: 40 }));
+  const middle = getTreeSpan(45);
+  assert.ok(middle.centre > 37 && middle.centre < 40 && middle.halfWidth > 5 && middle.halfWidth < 8);
+  // The sparkle sorts just in front of the tree layer and behind a cat standing in front of the gifts.
+  const box = TREE_SPARKLE_BOX ?? Object.fromEntries([...sparkles.match(/TREE_SPARKLE_BOX = \{([^}]+)\}/)[1].matchAll(/(\w+): ([\d.]+)/g)].map(([, key, value]) => [key, Number(value)]));
+  const ground = box.top + box.height * .94;
+  const treeGround = CHRISTMAS_TREE_BOX.top + CHRISTMAS_TREE_BOX.height * .94;
+  assert.ok(ground > treeGround && ground < 71);
+  assert.match(sparkles, /data-scene-depth="tree-sparkle"/);
+  assert.match(sparkles, /globalCompositeOperation = "lighter"/);
+  assert.match(sparkles, /prefers-reduced-motion: reduce/);
+  assert.match(sparkles, /cancelAnimationFrame\(frame\)/);
+  assert.match(source, /<TreeSparkles ref=\{treeSparklesRef\}/);
+  assert.match(source, /if \(isInsideTree\(clicked\)\) treeSparklesRef\.current\?\.burst\(clicked\);/);
 });

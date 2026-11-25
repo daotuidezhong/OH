@@ -88,6 +88,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 3px
 .game-room:is([data-period="morning"], [data-period="noon"]) .garland-glow i { width: 2.1%; }
 @keyframes garland-dim { 0%, 30% { opacity: 1; } 65%, 100% { opacity: 0; } }
 @keyframes garland-glow { 0%, 30% { opacity: 0; } 65%, 100% { opacity: 1; } }
+.garland-glow .yard-lantern-glow { position: absolute; width: 5.5%; aspect-ratio: 1; border-radius: 50%; transform: translate(-50%, -50%); background: radial-gradient(circle, rgba(255, 228, 150, .55) 0 12%, rgba(255, 178, 82, .28) 34%, rgba(255, 160, 70, 0) 68%); animation: lantern-flicker 2.6s steps(1, end) var(--flicker-delay) infinite; }
+@keyframes lantern-flicker { 0% { opacity: .85; } 9% { opacity: 1; } 17% { opacity: .7; } 26% { opacity: .95; } 41% { opacity: .78; } 55% { opacity: 1; } 63% { opacity: .66; } 72% { opacity: .9; } 86% { opacity: .75; } }
+/* Particle sparkle over the tree (app/game/TreeSparkles.tsx). Normal blending: over the bright tree a screen blend would wash the gold out. */
+.tree-sparkles { position: absolute; pointer-events: none; }
 /* The tree is painted into the room art; this clipped copy sorts by depth so whatever stands behind it stays behind it. */
 .room-tree-depth { position: absolute; overflow: hidden; pointer-events: none; }
 .room-tree-depth > div { position: absolute; background-size: 100% 100%; image-rendering: pixelated; filter: var(--scene-lighting); transition: filter 1.2s ease; }
@@ -1123,7 +1127,7 @@ body.desktop-pomodoro-mini-body { background: transparent; }
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
   .ice-cube-drop, .ice-cube-core, .unlock-ribbon, .result-glass, .result-drink-art, .pomodoro-window, .pomodoro-dial-face, .pomodoro-stats article, .pomodoro-celebration { animation: reduced-fade .2s var(--ease-out) both !important; }
   .ice-cube-slot { transition: opacity .2s ease !important; }
-  .garland-lights i { animation: none !important; }
+  .garland-lights :is(i, b) { animation: none !important; }
   .garland-dim i { opacity: 0; }
   .garland-glow i { opacity: .7; }
   .game-dock button:is(:hover, :focus-visible) :is(.record-book, .record-book span, .bag-body span, .dock-icon-glyph, .dock-cart-item, .cart-wheel, .dock-paw, .dock-move-hint, .pomodoro-dock-icon, .pomodoro-dock-icon img, .pomodoro-ring) { animation: none !important; }
